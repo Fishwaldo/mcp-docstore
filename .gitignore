@@ -1,0 +1,16 @@
+# Binaries
+/mcp-docstore
+*.exe
+
+# Local data / search index
+/data/
+*.db
+*.sqlite
+
+# Env / local config
+config.local.yaml
+.env
+
+# OS
+.DS_Store
+docs/superpowers/

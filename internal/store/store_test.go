@@ -1,0 +1,67 @@
+package store
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// newTestStore returns a migrated in-memory store for tests.
+func newTestStore(t *testing.T) *Store {
+	t.Helper()
+	s, err := Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	require.NoError(t, s.Migrate(context.Background()))
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+func TestOpenAndMigrate(t *testing.T) {
+	s := newTestStore(t)
+	require.NotNil(t, s.client)
+}
+
+func TestUpsertTenantAndUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	ten, err := s.EnsureTenant(ctx, "acme", "Acme Corp")
+	require.NoError(t, err)
+	require.Equal(t, "acme", ten.Key)
+
+	// First upsert creates the user.
+	u1, err := s.UpsertUser(ctx, ten.ID, "sub-123", "alice@acme.com")
+	require.NoError(t, err)
+	require.Equal(t, "alice@acme.com", u1.Email)
+
+	// Second upsert with same subject returns the same user (email refreshed).
+	u2, err := s.UpsertUser(ctx, ten.ID, "sub-123", "alice2@acme.com")
+	require.NoError(t, err)
+	require.Equal(t, u1.ID, u2.ID)
+	require.Equal(t, "alice2@acme.com", u2.Email)
+
+	// EnsureTenant is idempotent by key.
+	ten2, err := s.EnsureTenant(ctx, "acme", "Acme Corp (renamed)")
+	require.NoError(t, err)
+	require.Equal(t, ten.ID, ten2.ID)
+}
+
+// Security-critical invariant: a subject already bound to one tenant cannot be
+// re-bound to another (external_subject is globally unique → single-tenant binding).
+func TestUpsertUserRejectsCrossTenantRebinding(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenA, err := s.EnsureTenant(ctx, "acme", "Acme")
+	require.NoError(t, err)
+	tenB, err := s.EnsureTenant(ctx, "globex", "Globex")
+	require.NoError(t, err)
+
+	_, err = s.UpsertUser(ctx, tenA.ID, "sub-shared", "x@acme.com")
+	require.NoError(t, err)
+
+	// Same subject, different tenant → rejected with ErrInvalid, nothing rebound.
+	_, err = s.UpsertUser(ctx, tenB.ID, "sub-shared", "x@globex.com")
+	require.ErrorIs(t, err, ErrInvalid)
+}
