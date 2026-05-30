@@ -80,13 +80,35 @@ jobs:
             tar -czf "../${base}.tar.gz" mcp-docstore README.md config.example.yaml
           fi
 
-      - name: Upload to release
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            *.tar.gz
+            *.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  # One job creates/updates the Release and attaches every archive. Doing this once
+  # (rather than per-matrix-job) avoids the concurrent "release already_exists" race.
+  release:
+    needs: [prepare, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
-          files: |
-            *.tar.gz
-            *.zip
+          files: artifacts/*
           generate_release_notes: true
 
   docker:
@@ -138,7 +160,7 @@ jobs:
   # so if CLAUDE_CODE_OAUTH_TOKEN is not configured this job no-ops and GitHub's
   # auto-generated notes (from the binaries job) remain untouched.
   release-notes:
-    needs: [prepare, binaries]
+    needs: [prepare, release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
