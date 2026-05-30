@@ -6,6 +6,9 @@
 /data/
 *.db
 *.sqlite
+# Extension-less SQLite files a malformed test DSN could create (defense-in-depth)
+internal/**/auth-*
+internal/**/idx-*
 
 # Env / local config
 config.local.yaml

@@ -89,7 +89,7 @@ func (s *Store) Close() error { return s.client.Close() }
 
 // EnsureTenant returns the tenant with the given key, creating it if absent.
 //
-// TODO(phase3): the check-then-create below is not atomic. Concurrent callers for the
+// TODO(phase4): the check-then-create below is not atomic. Concurrent callers for the
 // same key can both miss and both Create; the second hits the unique constraint on key.
 // Acceptable in Phase 1 (single-threaded bootstrap), but wrap with an on-conflict re-query
 // before serving concurrent HTTP requests.

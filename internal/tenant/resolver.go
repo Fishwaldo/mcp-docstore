@@ -2,6 +2,7 @@
 package tenant
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Fishwaldo/mcp-docstore/internal/config"
@@ -13,14 +14,25 @@ type Resolver struct {
 	byDomain map[string]string
 }
 
+// NewResolver builds a resolver from tenant specs. It fails closed on a duplicate email
+// or domain mapped to two tenants (defense-in-depth: config.Validate already enforces
+// this, but NewResolver must not silently last-write-wins if called directly).
 func NewResolver(specs []config.TenantSpec) (*Resolver, error) {
 	r := &Resolver{byEmail: map[string]string{}, byDomain: map[string]string{}}
 	for _, s := range specs {
 		for _, e := range s.Match.Emails {
-			r.byEmail[strings.ToLower(e)] = s.Key
+			e = strings.ToLower(e)
+			if other, dup := r.byEmail[e]; dup && other != s.Key {
+				return nil, fmt.Errorf("email %q mapped to both %q and %q", e, other, s.Key)
+			}
+			r.byEmail[e] = s.Key
 		}
 		for _, d := range s.Match.Domains {
-			r.byDomain[strings.ToLower(d)] = s.Key
+			d = strings.ToLower(d)
+			if other, dup := r.byDomain[d]; dup && other != s.Key {
+				return nil, fmt.Errorf("domain %q mapped to both %q and %q", d, other, s.Key)
+			}
+			r.byDomain[d] = s.Key
 		}
 	}
 	return r, nil

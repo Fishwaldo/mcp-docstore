@@ -7,6 +7,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewResolverRejectsDuplicateDomain(t *testing.T) {
+	_, err := NewResolver([]config.TenantSpec{
+		{Key: "a", Match: config.TenantMatch{Domains: []string{"dup.com"}}},
+		{Key: "b", Match: config.TenantMatch{Domains: []string{"dup.com"}}},
+	})
+	require.ErrorContains(t, err, "dup.com")
+}
+
+func TestNewResolverRejectsDuplicateEmail(t *testing.T) {
+	_, err := NewResolver([]config.TenantSpec{
+		{Key: "a", Match: config.TenantMatch{Emails: []string{"x@dup.com"}}},
+		{Key: "b", Match: config.TenantMatch{Emails: []string{"x@dup.com"}}},
+	})
+	require.ErrorContains(t, err, "x@dup.com")
+}
+
 func newResolver(t *testing.T) *Resolver {
 	t.Helper()
 	r, err := NewResolver([]config.TenantSpec{
