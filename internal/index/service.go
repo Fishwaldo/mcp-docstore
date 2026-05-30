@@ -52,6 +52,13 @@ func toDoc(d *ent.Document) search.Doc {
 	return doc
 }
 
+// Search runs a query against the index. The mcp layer builds the access-scoped Query
+// from the authenticated identity; this is a thin passthrough that keeps search wiring
+// out of the mcp package.
+func (s *Service) Search(q search.Query) ([]search.Result, error) {
+	return s.index.Search(q)
+}
+
 // Reindex (re)indexes a single document by ID.
 func (s *Service) Reindex(ctx context.Context, documentID uuid.UUID) error {
 	d, err := s.store.DocumentForIndex(ctx, documentID)

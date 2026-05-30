@@ -34,7 +34,7 @@ func TestCreateGetListDocument(t *testing.T) {
 func TestCreateDocumentRequiresWriteAccess(t *testing.T) {
 	s := newTestStore(t)
 	ctx, owner := fixture(t, s)
-	readerEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-r", "r@acme.com")
+	readerEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-r", "r@acme.com", false)
 	require.NoError(t, err)
 	reader := Identity{TenantID: owner.TenantID, UserID: readerEnt.ID}
 

@@ -12,14 +12,25 @@ import (
 type Resolver struct {
 	byEmail  map[string]string
 	byDomain map[string]string
+	admins   map[string]map[string]bool
 }
 
 // NewResolver builds a resolver from tenant specs. It fails closed on a duplicate email
 // or domain mapped to two tenants (defense-in-depth: config.Validate already enforces
 // this, but NewResolver must not silently last-write-wins if called directly).
 func NewResolver(specs []config.TenantSpec) (*Resolver, error) {
-	r := &Resolver{byEmail: map[string]string{}, byDomain: map[string]string{}}
+	r := &Resolver{byEmail: map[string]string{}, byDomain: map[string]string{}, admins: map[string]map[string]bool{}}
 	for _, s := range specs {
+		if len(s.Admins) > 0 {
+			set := r.admins[s.Key]
+			if set == nil {
+				set = map[string]bool{}
+				r.admins[s.Key] = set
+			}
+			for _, a := range s.Admins {
+				set[strings.ToLower(strings.TrimSpace(a))] = true
+			}
+		}
 		for _, e := range s.Match.Emails {
 			e = strings.ToLower(e)
 			if other, dup := r.byEmail[e]; dup && other != s.Key {
@@ -54,6 +65,15 @@ func (r *Resolver) Resolve(email string) (string, bool) {
 		return key, true
 	}
 	return "", false
+}
+
+// IsAdmin reports whether email is a configured admin of the tenant identified by key.
+func (r *Resolver) IsAdmin(key, email string) bool {
+	set, ok := r.admins[key]
+	if !ok {
+		return false
+	}
+	return set[strings.ToLower(strings.TrimSpace(email))]
 }
 
 // ValidEmail reports whether s is a structurally acceptable email address.

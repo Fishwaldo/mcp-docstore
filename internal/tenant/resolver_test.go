@@ -62,3 +62,13 @@ func TestMalformedEmail(t *testing.T) {
 	_, ok := r.Resolve("not-an-email")
 	require.False(t, ok)
 }
+
+func TestResolverIsAdmin(t *testing.T) {
+	r, err := NewResolver([]config.TenantSpec{
+		{Key: "acme", Match: config.TenantMatch{Domains: []string{"acme.com"}}, Admins: []string{"alice@acme.com"}},
+	})
+	require.NoError(t, err)
+	require.True(t, r.IsAdmin("acme", "Alice@acme.com")) // case-insensitive
+	require.False(t, r.IsAdmin("acme", "bob@acme.com"))
+	require.False(t, r.IsAdmin("globex", "alice@acme.com")) // unknown tenant
+}

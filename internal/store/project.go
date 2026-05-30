@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -125,6 +126,40 @@ func (s *Store) ListProjects(ctx context.Context, id Identity, includeArchived b
 	return out, nil
 }
 
+// ProjectWithAccess pairs a project with the caller's effective access level.
+type ProjectWithAccess struct {
+	Project *ent.Project
+	Access  Access
+}
+
+// ListProjectsWithAccess is ListProjects but also returns the caller's effective access
+// per project (spec §5: list_projects reports your access level).
+func (s *Store) ListProjectsWithAccess(ctx context.Context, id Identity, includeArchived bool) ([]ProjectWithAccess, error) {
+	all, err := s.client.Project.Query().
+		Where(project.HasTenantWith(tenant.IDEQ(id.TenantID))).
+		WithOwner().
+		WithShares(func(q *ent.ProjectShareQuery) { q.WithUser() }).
+		WithGroupShares().
+		WithTenant().
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []ProjectWithAccess
+	for _, p := range all {
+		if p.Edges.Tenant.ID != id.TenantID {
+			continue
+		}
+		if p.Archived && !includeArchived {
+			continue
+		}
+		if acc := effectiveAccess(factsOf(p), id); acc > NoAccess {
+			out = append(out, ProjectWithAccess{Project: p, Access: acc})
+		}
+	}
+	return out, nil
+}
+
 // requireOwnerProject loads a project (tenant-scoped) and asserts the caller is its
 // owner or a tenant admin. Used by archive/unarchive and sharing operations.
 func (s *Store) requireOwnerProject(ctx context.Context, id Identity, projectID uuid.UUID) (*ent.Project, error) {
@@ -162,6 +197,57 @@ func (s *Store) UnarchiveProject(ctx context.Context, id Identity, projectID uui
 	return s.client.Project.UpdateOneID(p.ID).SetArchived(false).Exec(ctx)
 }
 
+// DeleteProject deletes a project and (via DB cascade) its documents, snapshots, and
+// shares. Owner/admin only. Returns the IDs of the documents that were removed so the
+// caller can evict them from the search index (ReindexProject cannot re-stamp rows that
+// no longer exist — spec §6.1). Tenant-scoped via requireOwnerProject.
+func (s *Store) DeleteProject(ctx context.Context, id Identity, projectID uuid.UUID) ([]uuid.UUID, error) {
+	p, err := s.requireOwnerProject(ctx, id, projectID)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := p.QueryDocuments().IDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.client.Project.DeleteOne(p).Exec(ctx); err != nil {
+		return nil, err
+	}
+	return docs, nil
+}
+
+// ProjectUpdate carries optional project field changes (nil = leave unchanged).
+type ProjectUpdate struct {
+	Name        *string
+	Description *string
+	Visibility  *string // "org" | "private"
+}
+
+// UpdateProject applies field changes; owner/admin only (via requireOwnerProject).
+func (s *Store) UpdateProject(ctx context.Context, id Identity, projectID uuid.UUID, in ProjectUpdate) (*ent.Project, error) {
+	p, err := s.requireOwnerProject(ctx, id, projectID)
+	if err != nil {
+		return nil, err
+	}
+	upd := p.Update()
+	if in.Name != nil {
+		if *in.Name == "" {
+			return nil, fmt.Errorf("%w: name required", ErrInvalid)
+		}
+		upd.SetName(*in.Name)
+	}
+	if in.Description != nil {
+		upd.SetDescription(*in.Description)
+	}
+	if in.Visibility != nil {
+		if *in.Visibility != "org" && *in.Visibility != "private" {
+			return nil, fmt.Errorf("%w: visibility must be org|private", ErrInvalid)
+		}
+		upd.SetVisibility(project.Visibility(*in.Visibility))
+	}
+	return upd.Save(ctx)
+}
+
 // ShareResult reports emails that were valid but matched no existing user in the tenant.
 type ShareResult struct {
 	Unresolved []string
@@ -181,6 +267,7 @@ func (s *Store) ShareProjectUsers(ctx context.Context, id Identity, projectID uu
 	}
 	res := &ShareResult{}
 	for _, email := range emails {
+		email = strings.ToLower(strings.TrimSpace(email))
 		u, uerr := s.client.User.Query().
 			Where(user.EmailEQ(email), user.HasTenantWith(tenant.IDEQ(id.TenantID))).
 			Only(ctx)
@@ -248,6 +335,51 @@ func (s *Store) ShareProjectGroups(ctx context.Context, id Identity, projectID u
 	return &ShareResult{}, nil
 }
 
+// ProjectShares is the read model for a project's shares.
+type ProjectShares struct {
+	Users  []UserShare
+	Groups []GroupShare
+}
+type UserShare struct {
+	Email      string
+	Permission string
+}
+type GroupShare struct {
+	Group      string
+	Permission string
+}
+
+// ListProjectShares returns the individual and group shares of a project. Requires the
+// caller can see the project (ReadAccess) — uses requireAccess.
+func (s *Store) ListProjectShares(ctx context.Context, id Identity, projectID uuid.UUID) (*ProjectShares, error) {
+	if _, _, err := s.requireAccess(ctx, id, projectID, ReadAccess); err != nil {
+		return nil, err
+	}
+	us, err := s.client.ProjectShare.Query().
+		Where(projectshare.HasProjectWith(project.IDEQ(projectID))).
+		WithUser().All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	gs, err := s.client.ProjectGroupShare.Query().
+		Where(projectgroupshare.HasProjectWith(project.IDEQ(projectID))).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &ProjectShares{}
+	for _, sh := range us {
+		email := ""
+		if sh.Edges.User != nil {
+			email = sh.Edges.User.Email
+		}
+		out.Users = append(out.Users, UserShare{Email: email, Permission: sh.Permission.String()})
+	}
+	for _, g := range gs {
+		out.Groups = append(out.Groups, GroupShare{Group: g.GroupName, Permission: g.Permission.String()})
+	}
+	return out, nil
+}
+
 // UnshareProjectUsers removes individual shares by email (owner/admin only).
 // Missing shares are silently ignored.
 func (s *Store) UnshareProjectUsers(ctx context.Context, id Identity, projectID uuid.UUID, emails []string) error {
@@ -258,6 +390,7 @@ func (s *Store) UnshareProjectUsers(ctx context.Context, id Identity, projectID 
 	for _, email := range emails {
 		// Tenant-scoped: email is not globally unique, so resolve only within the
 		// caller's tenant (mirrors ShareProjectUsers; prevents cross-tenant matches).
+		email = strings.ToLower(strings.TrimSpace(email))
 		u, uerr := s.client.User.Query().
 			Where(user.EmailEQ(email), user.HasTenantWith(tenant.IDEQ(id.TenantID))).
 			Only(ctx)

@@ -53,6 +53,7 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (*Claims, er
 		Subject: idToken.Subject,
 		Email:   email,
 		Groups:  toStringSlice(raw[v.groupsClaim]),
+		Expiry:  idToken.Expiry,
 	}, nil
 }
 

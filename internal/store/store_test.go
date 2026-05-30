@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,12 +32,12 @@ func TestUpsertTenantAndUser(t *testing.T) {
 	require.Equal(t, "acme", ten.Key)
 
 	// First upsert creates the user.
-	u1, err := s.UpsertUser(ctx, ten.ID, "sub-123", "alice@acme.com")
+	u1, err := s.UpsertUser(ctx, ten.ID, "sub-123", "alice@acme.com", false)
 	require.NoError(t, err)
 	require.Equal(t, "alice@acme.com", u1.Email)
 
 	// Second upsert with same subject returns the same user (email refreshed).
-	u2, err := s.UpsertUser(ctx, ten.ID, "sub-123", "alice2@acme.com")
+	u2, err := s.UpsertUser(ctx, ten.ID, "sub-123", "alice2@acme.com", false)
 	require.NoError(t, err)
 	require.Equal(t, u1.ID, u2.ID)
 	require.Equal(t, "alice2@acme.com", u2.Email)
@@ -58,10 +59,25 @@ func TestUpsertUserRejectsCrossTenantRebinding(t *testing.T) {
 	tenB, err := s.EnsureTenant(ctx, "globex", "Globex")
 	require.NoError(t, err)
 
-	_, err = s.UpsertUser(ctx, tenA.ID, "sub-shared", "x@acme.com")
+	_, err = s.UpsertUser(ctx, tenA.ID, "sub-shared", "x@acme.com", false)
 	require.NoError(t, err)
 
 	// Same subject, different tenant → rejected with ErrInvalid, nothing rebound.
-	_, err = s.UpsertUser(ctx, tenB.ID, "sub-shared", "x@globex.com")
+	_, err = s.UpsertUser(ctx, tenB.ID, "sub-shared", "x@globex.com", false)
 	require.ErrorIs(t, err, ErrInvalid)
+}
+
+func TestUpsertUserReconcilesAdminRole(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	ten, err := st.EnsureTenant(ctx, "acme", "Acme")
+	require.NoError(t, err)
+
+	u, err := st.UpsertUser(ctx, ten.ID, "sub-1", "alice@acme.com", true)
+	require.NoError(t, err)
+	require.Equal(t, user.RoleAdmin, u.Role)
+
+	u, err = st.UpsertUser(ctx, ten.ID, "sub-1", "alice@acme.com", false)
+	require.NoError(t, err)
+	require.Equal(t, user.RoleMember, u.Role)
 }

@@ -14,7 +14,7 @@ func fixture(t *testing.T, s *Store) (context.Context, Identity) {
 	ctx := context.Background()
 	ten, err := s.EnsureTenant(ctx, "acme", "Acme")
 	require.NoError(t, err)
-	u, err := s.UpsertUser(ctx, ten.ID, "sub-"+uuid.NewString(), "alice@acme.com")
+	u, err := s.UpsertUser(ctx, ten.ID, "sub-"+uuid.NewString(), "alice@acme.com", false)
 	require.NoError(t, err)
 	return ctx, Identity{TenantID: ten.ID, UserID: u.ID}
 }
@@ -49,7 +49,7 @@ func TestListProjectsShowsAccessibleOnly(t *testing.T) {
 	ctx, owner := fixture(t, s)
 
 	// Second user in same tenant.
-	other, err := s.UpsertUser(ctx, owner.TenantID, "sub-other", "bob@acme.com")
+	other, err := s.UpsertUser(ctx, owner.TenantID, "sub-other", "bob@acme.com", false)
 	require.NoError(t, err)
 	bob := Identity{TenantID: owner.TenantID, UserID: other.ID}
 
@@ -62,6 +62,54 @@ func TestListProjectsShowsAccessibleOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	require.Equal(t, orgP.ID, list[0].ID)
+}
+
+func TestListProjectsWithAccessReportsLevel(t *testing.T) {
+	s := newTestStore(t)
+	ctx, owner := fixture(t, s)
+	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com", false)
+	require.NoError(t, err)
+	bob := Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
+
+	p, err := s.CreateProject(ctx, owner, "Private", "", "private")
+	require.NoError(t, err)
+
+	// Owner sees their own private project with write access.
+	ownerList, err := s.ListProjectsWithAccess(ctx, owner, false)
+	require.NoError(t, err)
+	require.Len(t, ownerList, 1)
+	require.Equal(t, p.ID, ownerList[0].Project.ID)
+	require.Equal(t, "write", ownerList[0].Access.String())
+
+	// Bob (no share) does not see it.
+	bobList, err := s.ListProjectsWithAccess(ctx, bob, false)
+	require.NoError(t, err)
+	require.Len(t, bobList, 0)
+
+	// After a read share, bob sees it with read access.
+	_, err = s.ShareProjectUsers(ctx, owner, p.ID, []string{"bob@acme.com"}, "read")
+	require.NoError(t, err)
+	bobList, err = s.ListProjectsWithAccess(ctx, bob, false)
+	require.NoError(t, err)
+	require.Len(t, bobList, 1)
+	require.Equal(t, p.ID, bobList[0].Project.ID)
+	require.Equal(t, "read", bobList[0].Access.String())
+}
+
+func TestShareProjectUsersCaseInsensitiveEmail(t *testing.T) {
+	s := newTestStore(t)
+	ctx, owner := fixture(t, s)
+	// Upsert with mixed-case email; UpsertUser normalizes to lower case.
+	_, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "Bob@Acme.com", false)
+	require.NoError(t, err)
+
+	p, err := s.CreateProject(ctx, owner, "Doc", "", "private")
+	require.NoError(t, err)
+
+	// Sharing with a differently-cased email still resolves the user.
+	res, err := s.ShareProjectUsers(ctx, owner, p.ID, []string{"BOB@acme.com"}, "read")
+	require.NoError(t, err)
+	require.Empty(t, res.Unresolved)
 }
 
 func TestListProjectsExcludesArchivedByDefault(t *testing.T) {
@@ -100,7 +148,7 @@ func TestListProjectsExcludesArchivedByDefault(t *testing.T) {
 func TestShareProjectWithUserGrantsAccess(t *testing.T) {
 	s := newTestStore(t)
 	ctx, owner := fixture(t, s)
-	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com")
+	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com", false)
 	require.NoError(t, err)
 	bob := Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
 
@@ -124,7 +172,7 @@ func TestShareProjectWithUserGrantsAccess(t *testing.T) {
 func TestShareProjectRequiresOwner(t *testing.T) {
 	s := newTestStore(t)
 	ctx, owner := fixture(t, s)
-	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com")
+	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com", false)
 	require.NoError(t, err)
 	bob := Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
 
@@ -140,7 +188,7 @@ func TestShareProjectNoAccessIsNotFound(t *testing.T) {
 	ctx, owner := fixture(t, s)
 	// A same-tenant user with NO grant on a private project must not learn it exists:
 	// owner-gated operations return ErrNotFound, not ErrPermission.
-	strangerEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-stranger", "s@acme.com")
+	strangerEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-stranger", "s@acme.com", false)
 	require.NoError(t, err)
 	stranger := Identity{TenantID: owner.TenantID, UserID: strangerEnt.ID}
 
@@ -170,7 +218,7 @@ func TestShareProjectWithGroup(t *testing.T) {
 func TestUnshareRevokesAccess(t *testing.T) {
 	s := newTestStore(t)
 	ctx, owner := fixture(t, s)
-	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com")
+	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com", false)
 	require.NoError(t, err)
 	bob := Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
 	p, err := s.CreateProject(ctx, owner, "Doc", "", "private")
@@ -200,7 +248,7 @@ func TestUnshareRevokesAccess(t *testing.T) {
 func TestReshareUpdatesPermission(t *testing.T) {
 	s := newTestStore(t)
 	ctx, owner := fixture(t, s)
-	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com")
+	bobEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com", false)
 	require.NoError(t, err)
 	bob := Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
 	p, err := s.CreateProject(ctx, owner, "Doc", "", "private")
@@ -218,4 +266,68 @@ func TestReshareUpdatesPermission(t *testing.T) {
 	_, got, err = s.requireAccess(ctx, bob, p.ID, WriteAccess)
 	require.NoError(t, err)
 	require.Equal(t, WriteAccess, got)
+}
+
+func TestUpdateProject(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+	p, err := s.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+
+	name := "P2"
+	vis := "org"
+	got, err := s.UpdateProject(ctx, id, p.ID, ProjectUpdate{Name: &name, Visibility: &vis})
+	require.NoError(t, err)
+	require.Equal(t, "P2", got.Name)
+	require.Equal(t, "org", got.Visibility.String())
+
+	// A caller with no access at all sees ErrNotFound (existence hidden).
+	// Use a fresh private project: p was just flipped to "org" above, which grants
+	// every tenant member access (so a non-owner would get ErrPermission, not
+	// ErrNotFound). Existence is only truly hidden for a private project.
+	priv, err := s.CreateProject(ctx, id, "Priv", "", "private")
+	require.NoError(t, err)
+	other := Identity{TenantID: id.TenantID, UserID: uuid.New()}
+	_, err = s.UpdateProject(ctx, other, priv.ID, ProjectUpdate{Name: &name})
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestDeleteProjectReturnsRemovedDocIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+	p, err := s.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+	d1, err := s.CreateDocument(ctx, id, p.ID, NewDocument{Title: "a", Body: "x"})
+	require.NoError(t, err)
+	d2, err := s.CreateDocument(ctx, id, p.ID, NewDocument{Title: "b", Body: "y"})
+	require.NoError(t, err)
+
+	removed, err := s.DeleteProject(ctx, id, p.ID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uuid.UUID{d1.ID, d2.ID}, removed)
+
+	_, err = s.GetProject(ctx, id, p.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestListProjectShares(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+	_, err := s.UpsertUser(ctx, id.TenantID, "sub-bob", "bob@acme.com", false)
+	require.NoError(t, err)
+	p, err := s.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+	_, err = s.ShareProjectUsers(ctx, id, p.ID, []string{"bob@acme.com"}, "read")
+	require.NoError(t, err)
+	_, err = s.ShareProjectGroups(ctx, id, p.ID, []string{"eng"}, "write")
+	require.NoError(t, err)
+
+	shares, err := s.ListProjectShares(ctx, id, p.ID)
+	require.NoError(t, err)
+	require.Len(t, shares.Users, 1)
+	require.Equal(t, "bob@acme.com", shares.Users[0].Email)
+	require.Equal(t, "read", shares.Users[0].Permission)
+	require.Len(t, shares.Groups, 1)
+	require.Equal(t, "eng", shares.Groups[0].Group)
+	require.Equal(t, "write", shares.Groups[0].Permission)
 }

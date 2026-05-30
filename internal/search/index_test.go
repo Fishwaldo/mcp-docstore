@@ -28,6 +28,18 @@ func TestPutDeleteAndCount(t *testing.T) {
 	require.Equal(t, uint64(1), n)
 }
 
+func TestIsEmpty(t *testing.T) {
+	idx := openTemp(t)
+	empty, err := idx.IsEmpty()
+	require.NoError(t, err)
+	require.True(t, empty)
+
+	require.NoError(t, idx.Put(Doc{ID: "d1", TenantID: "t1", ProjectID: "p1", Title: "Hello", Body: "world"}))
+	empty, err = idx.IsEmpty()
+	require.NoError(t, err)
+	require.False(t, empty)
+}
+
 func TestOpenIsPersistent(t *testing.T) {
 	dir := t.TempDir() + "/idx.bleve"
 	idx, err := Open(dir)

@@ -221,6 +221,7 @@ func (s *Store) ListSnapshots(ctx context.Context, id Identity, documentID uuid.
 	return s.client.DocumentSnapshot.Query().
 		Where(documentsnapshot.HasDocumentWith(document.IDEQ(documentID))).
 		Order(ent.Desc(documentsnapshot.FieldVersion)).
+		WithCreatedBy().
 		All(ctx)
 }
 

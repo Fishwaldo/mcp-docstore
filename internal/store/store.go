@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -105,9 +106,16 @@ func (s *Store) EnsureTenant(ctx context.Context, key, name string) (*ent.Tenant
 }
 
 // UpsertUser finds-or-creates a user by external_subject, binding to tenantID and
-// refreshing the email. external_subject is globally unique, so a subject seen under
-// a different tenant is rejected with ErrInvalid (single-tenant binding, spec §3).
-func (s *Store) UpsertUser(ctx context.Context, tenantID uuid.UUID, subject, email string) (*ent.User, error) {
+// refreshing the email. It also reconciles the user's role from the isAdmin flag
+// (RoleAdmin when true, RoleMember otherwise) on both create and update, so role is
+// always driven by config. external_subject is globally unique, so a subject seen
+// under a different tenant is rejected with ErrInvalid (single-tenant binding, spec §3).
+func (s *Store) UpsertUser(ctx context.Context, tenantID uuid.UUID, subject, email string, isAdmin bool) (*ent.User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	role := user.RoleMember
+	if isAdmin {
+		role = user.RoleAdmin
+	}
 	existing, err := s.client.User.Query().
 		Where(user.ExternalSubjectEQ(subject)).
 		WithTenant().
@@ -116,8 +124,8 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID uuid.UUID, subject, ema
 		if existing.Edges.Tenant.ID != tenantID {
 			return nil, fmt.Errorf("%w: subject already bound to another tenant", ErrInvalid)
 		}
-		if existing.Email != email {
-			return existing.Update().SetEmail(email).Save(ctx)
+		if existing.Email != email || existing.Role != role {
+			return existing.Update().SetEmail(email).SetRole(role).Save(ctx)
 		}
 		return existing, nil
 	}
@@ -128,5 +136,6 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID uuid.UUID, subject, ema
 		SetExternalSubject(subject).
 		SetEmail(email).
 		SetTenantID(tenantID).
+		SetRole(role).
 		Save(ctx)
 }

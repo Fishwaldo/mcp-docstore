@@ -47,7 +47,7 @@ var (
 				Symbol:     "documents_projects_documents",
 				Columns:    []*schema.Column{DocumentsColumns[13]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 		},
 		Indexes: []*schema.Index{
@@ -141,7 +141,7 @@ var (
 				Symbol:     "project_group_shares_projects_group_shares",
 				Columns:    []*schema.Column{ProjectGroupSharesColumns[4]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 			{
 				Symbol:     "project_group_shares_users_created_by",
@@ -177,7 +177,7 @@ var (
 				Symbol:     "project_shares_projects_shares",
 				Columns:    []*schema.Column{ProjectSharesColumns[3]},
 				RefColumns: []*schema.Column{ProjectsColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 			{
 				Symbol:     "project_shares_users_user",

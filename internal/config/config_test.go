@@ -19,6 +19,8 @@ func writeTemp(t *testing.T, body string) string {
 func TestLoadValidConfig(t *testing.T) {
 	path := writeTemp(t, `
 listen_addr: ":8080"
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
 database:
   driver: sqlite
   dsn: "file:test?mode=memory&cache=shared"
@@ -47,9 +49,33 @@ tenants:
 	require.Contains(t, cfg.Tenants[0].Match.Domains, "acme.io")
 }
 
+func TestLoadParsesAdminsAndPublicURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: { driver: sqlite, dsn: "file:t?mode=memory" }
+oidc: { issuer: "https://idp.example.com", audience: "mcp-docstore" }
+tenants:
+  - key: acme
+    name: Acme
+    match: { domains: ["acme.com"] }
+    admins: ["Alice@ACME.com"]
+`), 0o600))
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "https://docs.example.com", cfg.PublicURL)
+	require.Equal(t, []string{"alice@acme.com"}, cfg.Tenants[0].Admins) // normalize() lower-cases admins
+}
+
 func TestValidateRejectsDuplicateDomain(t *testing.T) {
 	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 tenants:
   - key: a
     name: A
@@ -64,7 +90,10 @@ tenants:
 
 func TestSnapshotRetentionDefaults(t *testing.T) {
 	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 tenants:
   - key: a
     name: A
@@ -98,9 +127,50 @@ database:
 			wantSub: "database.dsn is required",
 		},
 		{
+			name: "missing oidc.issuer",
+			yaml: `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {audience: "mcp-docstore"}
+`,
+			wantSub: "oidc.issuer is required",
+		},
+		{
+			name: "missing oidc.audience",
+			yaml: `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com"}
+`,
+			wantSub: "oidc.audience is required",
+		},
+		{
+			name: "missing public_url",
+			yaml: `
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`,
+			wantSub: "public_url is required",
+		},
+		{
+			name: "missing bleve_index_path",
+			yaml: `
+public_url: "https://docs.example.com"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`,
+			wantSub: "bleve_index_path is required",
+		},
+		{
 			name: "empty tenant key",
 			yaml: `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 tenants:
   - key: ""
     name: NoKey
@@ -111,7 +181,10 @@ tenants:
 		{
 			name: "duplicate tenant key",
 			yaml: `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 tenants:
   - key: alpha
     name: Alpha
@@ -125,7 +198,10 @@ tenants:
 		{
 			name: "duplicate email across tenants",
 			yaml: `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 tenants:
   - key: t1
     name: T1

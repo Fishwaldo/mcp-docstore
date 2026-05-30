@@ -9,6 +9,7 @@ import (
 )
 
 type Config struct {
+	PublicURL         string       `mapstructure:"public_url"`
 	ListenAddr        string       `mapstructure:"listen_addr"`
 	SnapshotRetention int          `mapstructure:"snapshot_retention"`
 	BleveIndexPath    string       `mapstructure:"bleve_index_path"`
@@ -30,9 +31,10 @@ type OIDC struct {
 }
 
 type TenantSpec struct {
-	Key   string      `mapstructure:"key"`
-	Name  string      `mapstructure:"name"`
-	Match TenantMatch `mapstructure:"match"`
+	Key    string      `mapstructure:"key"`
+	Name   string      `mapstructure:"name"`
+	Match  TenantMatch `mapstructure:"match"`
+	Admins []string    `mapstructure:"admins"`
 }
 
 type TenantMatch struct {
@@ -73,6 +75,11 @@ func (c *Config) normalize() {
 			m.Emails[j] = strings.ToLower(strings.TrimSpace(e))
 		}
 	}
+	for i := range c.Tenants {
+		for j, a := range c.Tenants[i].Admins {
+			c.Tenants[i].Admins[j] = strings.ToLower(strings.TrimSpace(a))
+		}
+	}
 }
 
 // Validate enforces structural rules and the spec §3 uniqueness guarantee:
@@ -85,6 +92,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Database.DSN == "" {
 		return fmt.Errorf("database.dsn is required")
+	}
+	if c.OIDC.Issuer == "" {
+		return fmt.Errorf("oidc.issuer is required")
+	}
+	if c.OIDC.Audience == "" {
+		return fmt.Errorf("oidc.audience is required")
+	}
+	if c.PublicURL == "" {
+		return fmt.Errorf("public_url is required")
+	}
+	if c.BleveIndexPath == "" {
+		return fmt.Errorf("bleve_index_path is required")
 	}
 	seenKey := map[string]bool{}
 	seenDomain := map[string]string{}

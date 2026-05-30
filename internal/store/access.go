@@ -10,6 +10,18 @@ const (
 	WriteAccess
 )
 
+// String renders an Access level as its wire/spec name ("none"|"read"|"write").
+func (a Access) String() string {
+	switch a {
+	case WriteAccess:
+		return "write"
+	case ReadAccess:
+		return "read"
+	default:
+		return "none"
+	}
+}
+
 // permLevel maps a stored permission string to an Access level. It fails closed:
 // any value other than the known enum values yields NoAccess, so a corrupted or
 // unexpected permission can never silently grant access.

@@ -1,0 +1,22 @@
+listen_addr: ":8080"
+public_url: "https://docs.example.com"   # public base URL; used in protected-resource metadata + WWW-Authenticate
+snapshot_retention: 10
+bleve_index_path: "./data/index.bleve"
+
+database:
+  driver: sqlite                          # sqlite | mysql | postgres
+  dsn: "file:./data/docstore.db?_pragma=foreign_keys(1)"
+
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"                # the "aud" this resource server requires
+  email_claim: "email"
+  groups_claim: "groups"
+
+tenants:
+  - key: acme
+    name: "Acme Corp"
+    match:
+      domains: ["acme.com", "acme.io"]
+      emails: ["contractor@gmail.com"]
+    admins: ["alice@acme.com"]            # tenant admins (declarative; reconciled at login)

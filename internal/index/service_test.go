@@ -35,7 +35,7 @@ func TestRebuildAllThenSearch(t *testing.T) {
 
 	ten, err := s.EnsureTenant(ctx, "acme", "Acme")
 	require.NoError(t, err)
-	u, err := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com")
+	u, err := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com", false)
 	require.NoError(t, err)
 	id := store.Identity{TenantID: ten.ID, UserID: u.ID}
 
@@ -58,7 +58,7 @@ func TestReindexAndRemove(t *testing.T) {
 	svc := New(s, idx)
 	ctx := context.Background()
 	ten, _ := s.EnsureTenant(ctx, "acme", "Acme")
-	u, _ := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com")
+	u, _ := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com", false)
 	id := store.Identity{TenantID: ten.ID, UserID: u.ID}
 	p, _ := s.CreateProject(ctx, id, "P", "", "private")
 	d, err := s.CreateDocument(ctx, id, p.ID, store.NewDocument{Title: "needle", Body: "b"})
@@ -79,7 +79,7 @@ func TestReindexProjectReflectsArchive(t *testing.T) {
 	svc := New(s, idx)
 	ctx := context.Background()
 	ten, _ := s.EnsureTenant(ctx, "acme", "Acme")
-	u, _ := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com")
+	u, _ := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com", false)
 	id := store.Identity{TenantID: ten.ID, UserID: u.ID}
 	p, _ := s.CreateProject(ctx, id, "P", "", "private")
 	_, err := s.CreateDocument(ctx, id, p.ID, store.NewDocument{Title: "needle", Body: "b"})
@@ -99,7 +99,7 @@ func TestRebuildAllClearsStaleEntries(t *testing.T) {
 	svc := New(s, idx)
 	ctx := context.Background()
 	ten, _ := s.EnsureTenant(ctx, "acme", "Acme")
-	u, _ := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com")
+	u, _ := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com", false)
 	id := store.Identity{TenantID: ten.ID, UserID: u.ID}
 	p, _ := s.CreateProject(ctx, id, "P", "", "private")
 	_, err := s.CreateDocument(ctx, id, p.ID, store.NewDocument{Title: "needle", Body: "b"})
@@ -122,14 +122,39 @@ func TestRebuildAllClearsStaleEntries(t *testing.T) {
 	require.NotEqual(t, "stale", res[0].DocumentID)
 }
 
+func TestServiceSearchPassthrough(t *testing.T) {
+	s := newStore(t)
+	idx := newIndex(t)
+	svc := New(s, idx)
+	ctx := context.Background()
+	ten, _ := s.EnsureTenant(ctx, "acme", "Acme")
+	u, _ := s.UpsertUser(ctx, ten.ID, "sub-1", "a@acme.com", false)
+	id := store.Identity{TenantID: ten.ID, UserID: u.ID}
+	p, _ := s.CreateProject(ctx, id, "P", "", "private")
+	d, err := s.CreateDocument(ctx, id, p.ID, store.NewDocument{Title: "needle", Body: "b"})
+	require.NoError(t, err)
+	require.NoError(t, svc.Reindex(ctx, d.ID))
+
+	q := search.Query{Text: "needle", TenantID: ten.ID.String(), UserID: u.ID.String()}
+	res, err := svc.Search(q)
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	require.Equal(t, d.ID.String(), res[0].DocumentID)
+
+	q.Text = "nomatch"
+	res, err = svc.Search(q)
+	require.NoError(t, err)
+	require.Len(t, res, 0)
+}
+
 func TestRebuildAllSharedUserReachable(t *testing.T) {
 	s := newStore(t)
 	idx := newIndex(t)
 	svc := New(s, idx)
 	ctx := context.Background()
 	ten, _ := s.EnsureTenant(ctx, "acme", "Acme")
-	owner, _ := s.UpsertUser(ctx, ten.ID, "sub-owner", "o@acme.com")
-	bob, _ := s.UpsertUser(ctx, ten.ID, "sub-bob", "bob@acme.com")
+	owner, _ := s.UpsertUser(ctx, ten.ID, "sub-owner", "o@acme.com", false)
+	bob, _ := s.UpsertUser(ctx, ten.ID, "sub-bob", "bob@acme.com", false)
 	ownerID := store.Identity{TenantID: ten.ID, UserID: owner.ID}
 	p, _ := s.CreateProject(ctx, ownerID, "P", "", "private")
 	_, err := s.CreateDocument(ctx, ownerID, p.ID, store.NewDocument{Title: "needle", Body: "b"})

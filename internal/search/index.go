@@ -66,6 +66,13 @@ func (i *Index) Delete(id string) error {
 
 func (i *Index) count() (uint64, error) { return i.idx.DocCount() }
 
+// IsEmpty reports whether the index currently holds zero documents. Used at boot to
+// decide whether to rebuild from the DB.
+func (i *Index) IsEmpty() (bool, error) {
+	n, err := i.count()
+	return n == 0, err
+}
+
 // Search runs an access-scoped query. The caller-supplied access fields (TenantID,
 // UserID, Groups) build mandatory filter clauses that the Text cannot override.
 func (i *Index) Search(q Query) ([]Result, error) {

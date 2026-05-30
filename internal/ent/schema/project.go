@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect/entsql"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 )
@@ -27,8 +28,11 @@ func (Project) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.From("tenant", Tenant.Type).Ref("projects").Unique().Required(),
 		edge.To("owner", User.Type).Unique().Required(),
-		edge.To("shares", ProjectShare.Type),
-		edge.To("group_shares", ProjectGroupShare.Type),
-		edge.To("documents", Document.Type),
+		edge.To("shares", ProjectShare.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("group_shares", ProjectGroupShare.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.To("documents", Document.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
 	}
 }

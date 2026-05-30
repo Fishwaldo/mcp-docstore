@@ -45,6 +45,8 @@ func TestOIDCVerifierVerifiesAndExtractsClaims(t *testing.T) {
 	require.Equal(t, "sub-1", claims.Subject)
 	require.Equal(t, "alice@acme.com", claims.Email)
 	require.Equal(t, []string{"eng", "ops"}, claims.Groups)
+	require.False(t, claims.Expiry.IsZero())
+	require.WithinDuration(t, time.Now().Add(time.Hour), claims.Expiry, 2*time.Minute)
 }
 
 func TestOIDCVerifierRejectsWrongAudience(t *testing.T) {
