@@ -13,17 +13,17 @@ func TestEffectiveAccess(t *testing.T) {
 	sharedUser := uuid.New()
 
 	proj := projectFacts{
-		Visibility: "private",
-		OwnerID:    owner,
-		UserShares: map[uuid.UUID]string{sharedUser: "read"},
+		Visibility:  "private",
+		OwnerID:     owner,
+		UserShares:  map[uuid.UUID]string{sharedUser: "read"},
 		GroupShares: map[string]string{"eng": "write"},
 	}
 
 	tests := []struct {
-		name   string
-		ident  Identity
-		facts  projectFacts
-		want   Access
+		name  string
+		ident Identity
+		facts projectFacts
+		want  Access
 	}{
 		{"owner has write", Identity{UserID: owner}, proj, WriteAccess},
 		{"stranger has none", Identity{UserID: other}, proj, NoAccess},
