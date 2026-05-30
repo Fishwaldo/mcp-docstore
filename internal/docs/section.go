@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package docs provides markdown-aware editing helpers built on goldmark.
 package docs
 

@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package mcp wires the store, search index, and goldmark editing into the MCP tool
-// surface. The Service bundles each store mutation with its search-index sync (spec §6.1)
-// and any markdown orchestration; all methods take a resolved store.Identity.
+// surface. The Service bundles each store mutation with its search-index sync and any
+// markdown orchestration; all methods take a resolved store.Identity.
 package mcp
 
 import (
@@ -125,7 +128,7 @@ func (s *Service) EditSection(ctx context.Context, id store.Identity, docID uuid
 	return s.EditReplace(ctx, id, docID, base, nil, &newBody, nil, comment)
 }
 
-// AppendDocument appends text to the end of the body. Non-clobbering (spec §5): it does
+// AppendDocument appends text to the end of the body. Non-clobbering: it does
 // NOT take a caller base_version; it reads the current version and uses it as the base, so
 // concurrent appends never conflict. Still produces a new version + snapshot.
 func (s *Service) AppendDocument(ctx context.Context, id store.Identity, docID uuid.UUID, text, comment string) (*ent.Document, error) {
@@ -272,7 +275,8 @@ func (s *Service) ListShares(ctx context.Context, id store.Identity, projectID u
 // ---- search ----
 
 // Search runs a query, stamping the access-scope fields from identity so the agent can
-// never widen its own visibility (spec §6).
+// never widen its own visibility (the tenant/user/group fields are overwritten here,
+// never taken from tool input).
 func (s *Service) Search(id store.Identity, q search.Query) ([]search.Result, error) {
 	q.TenantID = id.TenantID.String()
 	q.UserID = id.UserID.String()

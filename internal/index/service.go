@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package index keeps the Bleve search index in sync with the store. It is the only
 // package that knows both ent (via store) and search, and owns the ent→search.Doc mapping.
 package index
@@ -91,7 +94,7 @@ func (s *Service) ReindexProject(ctx context.Context, projectID uuid.UUID) error
 // RebuildAll rebuilds the entire index from the DB. It first Resets (drops) the index
 // so stale entries — documents deleted from the DB, or leftovers from an old mapping —
 // are cleared, then reindexes every document across all tenants. Used at boot when the
-// index path is empty and by the CLI `rebuild-index` subcommand (Phase 4).
+// index path is empty and by the `rebuild-index` CLI subcommand.
 func (s *Service) RebuildAll(ctx context.Context) error {
 	docs, err := s.store.AllDocumentsForIndex(ctx)
 	if err != nil {

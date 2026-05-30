@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package auth validates OAuth bearer tokens and resolves them to a store.Identity.
 package auth
 

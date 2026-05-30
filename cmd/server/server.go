@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package server wires the configured layers into a running MCP server and hosts the
 // CLI subcommands.
 package server
@@ -48,7 +51,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err := st.Migrate(ctx); err != nil {
 		return err
 	}
-	for _, ts := range cfg.Tenants { // tenants are config-seeded (spec §3)
+	for _, ts := range cfg.Tenants { // tenants exist only as declared in config
 		if _, err := st.EnsureTenant(ctx, ts.Key, ts.Name); err != nil {
 			return fmt.Errorf("seed tenant %q: %w", ts.Key, err)
 		}
@@ -75,7 +78,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if empty { // first boot with an empty index: build from the DB (spec §6)
+	if empty { // first boot with an empty index: build it from the database
 		logger.Info("search index empty; building from database")
 		if err := idxSvc.RebuildAll(ctx); err != nil {
 			return err

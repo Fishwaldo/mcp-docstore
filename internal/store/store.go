@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package store owns all database access, tenant scoping, the authorization
 // access rule, optimistic concurrency, and version snapshots.
 package store
@@ -36,7 +39,7 @@ func WithSnapshotRetention(n int) Option {
 }
 
 // Identity is the authenticated caller for a request, resolved by the auth layer
-// (Phase 3) and threaded into every store call.
+// and threaded into every store call.
 type Identity struct {
 	TenantID uuid.UUID
 	UserID   uuid.UUID
@@ -90,10 +93,10 @@ func (s *Store) Close() error { return s.client.Close() }
 
 // EnsureTenant returns the tenant with the given key, creating it if absent.
 //
-// TODO(phase4): the check-then-create below is not atomic. Concurrent callers for the
-// same key can both miss and both Create; the second hits the unique constraint on key.
-// Acceptable in Phase 1 (single-threaded bootstrap), but wrap with an on-conflict re-query
-// before serving concurrent HTTP requests.
+// TODO: the check-then-create below is not atomic. Concurrent callers for the same key
+// can both miss and both Create; the second then hits the unique constraint on key. This
+// is fine for single-threaded startup seeding (the only current caller), but wrap it with
+// an on-conflict re-query before calling it from concurrent request paths.
 func (s *Store) EnsureTenant(ctx context.Context, key, name string) (*ent.Tenant, error) {
 	t, err := s.client.Tenant.Query().Where(tenant.KeyEQ(key)).Only(ctx)
 	if err == nil {
@@ -109,7 +112,7 @@ func (s *Store) EnsureTenant(ctx context.Context, key, name string) (*ent.Tenant
 // refreshing the email. It also reconciles the user's role from the isAdmin flag
 // (RoleAdmin when true, RoleMember otherwise) on both create and update, so role is
 // always driven by config. external_subject is globally unique, so a subject seen
-// under a different tenant is rejected with ErrInvalid (single-tenant binding, spec §3).
+// under a different tenant is rejected with ErrInvalid: a user belongs to exactly one tenant.
 func (s *Store) UpsertUser(ctx context.Context, tenantID uuid.UUID, subject, email string, isAdmin bool) (*ent.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	role := user.RoleMember

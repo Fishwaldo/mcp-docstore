@@ -4,6 +4,8 @@
   # MCP DocStore
 
   **A multi-tenant [Model Context Protocol](https://modelcontextprotocol.io) server for persistent documents — so AI agents can save, find, and edit work that survives across sessions and tools.**
+
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 </div>
 
 ---
@@ -100,6 +102,43 @@ go build -o mcp-docstore .
 
 On first boot with an empty index, the server builds it from the database automatically.
 
+### Docker
+
+Images are published to GHCR for `linux/amd64` and `linux/arm64`: `ghcr.io/fishwaldo/mcp-docstore` (tags `:X.Y.Z`, `:X.Y`, `:latest`).
+
+Persistent state — the SQLite database and the Bleve index — lives in the container at **`/data`** (a declared volume, owned by the non-root runtime user `65532`). Point your config there and mount a volume so data survives restarts:
+
+```yaml
+# config.yaml (paths under the mounted /data volume)
+bleve_index_path: "/data/index.bleve"
+database:
+  driver: sqlite
+  dsn: "file:/data/docstore.db?_pragma=foreign_keys(1)"
+```
+
+```sh
+docker run -p 8080:8080 \
+  -v mcp-docstore-data:/data \
+  -v "$PWD/config.yaml:/etc/mcp-docstore/config.yaml:ro" \
+  ghcr.io/fishwaldo/mcp-docstore --config /etc/mcp-docstore/config.yaml
+
+# rebuild the index in the same container/volume
+docker run --rm \
+  -v mcp-docstore-data:/data \
+  -v "$PWD/config.yaml:/etc/mcp-docstore/config.yaml:ro" \
+  ghcr.io/fishwaldo/mcp-docstore --config /etc/mcp-docstore/config.yaml rebuild-index
+```
+
+Notes:
+- The container runs as **non-root (uid 65532)**. A Docker **named volume** (as above) is initialized with the right ownership automatically. If you use a **bind mount** instead (`-v $PWD/data:/data`), `chown 65532:65532` the host directory first, or the server can't write to it.
+- With an external **MySQL/Postgres** backend, `/data` holds only the Bleve index (rebuildable via `rebuild-index`), not your documents.
+
+Build it yourself:
+
+```sh
+docker build -t mcp-docstore .
+```
+
 ### Authentication
 
 Every request to the MCP endpoint must carry `Authorization: Bearer <JWT>`. The server verifies
@@ -133,3 +172,7 @@ go test ./...                              # full suite (uses in-memory SQLite)
 go test -race ./internal/mcp/... ./cmd/... # race detector on the concurrent paths
 go generate ./...                          # regenerate ent after a schema change
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Justin Hammond. Dependencies are permissively licensed (MIT / BSD / Apache-2.0).

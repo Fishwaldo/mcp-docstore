@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 package mcp
 
 import (
@@ -12,7 +15,7 @@ import (
 // confirm returns nil if a destructive action is approved. If the client supports
 // elicitation it asks (message describes the impact), approving only on action "accept".
 // Otherwise it requires the caller to have passed confirm=true. Decline/cancel, or a
-// missing confirm, returns an error explaining how to proceed (spec §5.1).
+// missing confirm, returns an error explaining how to proceed.
 func confirm(ctx context.Context, req *sdk.CallToolRequest, message string, confirmArg bool) error {
 	if clientSupportsElicitation(req) {
 		res, err := req.Session.Elicit(ctx, &sdk.ElicitParams{

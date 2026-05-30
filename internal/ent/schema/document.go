@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 package schema
 
 import (
@@ -17,7 +20,8 @@ func (Document) Mixin() []ent.Mixin { return []ent.Mixin{BaseMixin{}} }
 
 func (Document) Fields() []ent.Field {
 	return []ent.Field{
-		// Denormalized tenant id for direct filtering and (Phase 2) search indexing.
+		// Denormalized tenant id so every query and the search index can filter by
+		// tenant directly — defense-in-depth for isolation.
 		field.UUID("tenant_id", uuid.UUID{}),
 		field.String("title").NotEmpty(),
 		field.Text("overview"),

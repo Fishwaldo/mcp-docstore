@@ -1,0 +1,10 @@
+.git
+.github
+dist
+docs
+*.md
+assets/icon-source.png
+Dockerfile
+.dockerignore
+backup-pre-squash
+data

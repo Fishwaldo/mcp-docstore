@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 package mcp
 
 import (
@@ -9,8 +12,8 @@ import (
 
 // toolErr converts a store/docs error into the error a ToolHandlerFor returns. The SDK
 // packs the returned error's text into an error tool result (IsError=true) so the model
-// can see and self-correct (spec §8). ErrConflict messages already include the current
-// version so the agent can re-read.
+// can see and self-correct. ErrConflict messages already include the current version so
+// the agent can re-read and retry.
 func toolErr(err error) error {
 	switch {
 	case err == nil:

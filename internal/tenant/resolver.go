@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package tenant resolves authenticated email identities to a configured tenant key.
 package tenant
 

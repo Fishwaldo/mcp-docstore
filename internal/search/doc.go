@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package search provides a persistent Bleve full-text index with tenant- and
 // access-scoped queries. It knows nothing about ent or the store; callers map
 // their domain rows to Doc.

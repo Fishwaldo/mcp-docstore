@@ -1,0 +1,189 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to (re)release, e.g. v0.4.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write   # create the GitHub Release + upload assets
+  packages: write   # push the image to GHCR
+
+jobs:
+  # Resolve the tag once: the pushed tag for `push`, or the input for a manual run.
+  # All other jobs key off this so a workflow_dispatch (where github.ref is a branch,
+  # not the tag) still targets the correct release.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          if [ -z "$tag" ]; then echo "::error::no tag resolved"; exit 1; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
+  binaries:
+    needs: prepare
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          bin="mcp-docstore"
+          [ "$GOOS" = "windows" ] && bin="mcp-docstore.exe"
+          go build -trimpath -ldflags="-s -w" -o "dist/$bin" .
+
+      - name: Package
+        run: |
+          version="${{ needs.prepare.outputs.tag }}"
+          base="mcp-docstore_${version}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          cp README.md config.example.yaml dist/
+          cd dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "../${base}.zip" mcp-docstore.exe README.md config.example.yaml
+          else
+            tar -czf "../${base}.tar.gz" mcp-docstore README.md config.example.yaml
+          fi
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          files: |
+            *.tar.gz
+            *.zip
+          generate_release_notes: true
+
+  docker:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # value= overrides the source ref so semver tags work on manual dispatch too.
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.prepare.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.tag }}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Rewrite the release body with AI-authored notes derived from the diff between the
+  # previous tag and this one. Runs AFTER the release exists (binaries job creates it),
+  # so if CLAUDE_CODE_OAUTH_TOKEN is not configured this job no-ops and GitHub's
+  # auto-generated notes (from the binaries job) remain untouched.
+  release-notes:
+    needs: [prepare, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check for Claude token
+        id: gate
+        run: |
+          if [ -n "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN not set — keeping auto-generated release notes."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Generate release notes with Claude
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # so the gh CLI Claude invokes is authenticated
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            Write release notes for git tag ${{ needs.prepare.outputs.tag }} of this repository, then publish them.
+
+            1. Find the previous tag:
+                 prev=$(git describe --tags --abbrev=0 "${{ needs.prepare.outputs.tag }}^" 2>/dev/null)
+               If there is no previous tag, treat the range as the whole history.
+            2. Inspect what changed between $prev and ${{ needs.prepare.outputs.tag }}:
+                 git log --no-merges --pretty=format:'%s' "$prev..${{ needs.prepare.outputs.tag }}"
+                 git diff --stat "$prev..${{ needs.prepare.outputs.tag }}"
+            3. Write concise, user-facing Markdown release notes: a one-line summary, then
+               sections "Added" / "Changed" / "Fixed" (omit any empty section). Be factual —
+               derive everything from the actual changes; do not invent features. Save to
+               release-notes.md.
+            4. Publish them as the release body:
+                 gh release edit "${{ needs.prepare.outputs.tag }}" --notes-file release-notes.md
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 15
+            --allowedTools "Bash(git:*),Bash(gh:*),Read,Write,Edit"

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 package mcp
 
 import sdk "github.com/modelcontextprotocol/go-sdk/mcp"

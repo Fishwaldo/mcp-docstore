@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 package store
 
 import (
@@ -133,7 +136,7 @@ type ProjectWithAccess struct {
 }
 
 // ListProjectsWithAccess is ListProjects but also returns the caller's effective access
-// per project (spec §5: list_projects reports your access level).
+// per project, so callers can report the access level alongside each project.
 func (s *Store) ListProjectsWithAccess(ctx context.Context, id Identity, includeArchived bool) ([]ProjectWithAccess, error) {
 	all, err := s.client.Project.Query().
 		Where(project.HasTenantWith(tenant.IDEQ(id.TenantID))).
@@ -199,8 +202,9 @@ func (s *Store) UnarchiveProject(ctx context.Context, id Identity, projectID uui
 
 // DeleteProject deletes a project and (via DB cascade) its documents, snapshots, and
 // shares. Owner/admin only. Returns the IDs of the documents that were removed so the
-// caller can evict them from the search index (ReindexProject cannot re-stamp rows that
-// no longer exist — spec §6.1). Tenant-scoped via requireOwnerProject.
+// caller can evict them from the search index (the index can only re-stamp rows that
+// still exist, so the IDs must be captured before the cascade). Tenant-scoped via
+// requireOwnerProject.
 func (s *Store) DeleteProject(ctx context.Context, id Identity, projectID uuid.UUID) ([]uuid.UUID, error) {
 	p, err := s.requireOwnerProject(ctx, id, projectID)
 	if err != nil {

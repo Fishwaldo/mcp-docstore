@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 package auth
 
 import (
@@ -19,8 +22,9 @@ const identityKey = "docstore.identity"
 
 // NewResourceVerifier adapts our OIDC verifier + tenant resolver + store into the SDK's
 // auth.TokenVerifier. On every request it re-verifies the token and re-resolves identity,
-// so token expiry and the groups claim are always current (spec §3, §6). Any identity-
-// resolution failure is wrapped as mcpauth.ErrInvalidToken so RequireBearerToken returns
+// so token expiry and the groups claim are always current (revoked group access takes
+// effect on the next request). Any identity-resolution failure is wrapped as
+// mcpauth.ErrInvalidToken so RequireBearerToken returns
 // 401 with the resource-metadata challenge (we intentionally collapse the finer 401/403
 // distinction into 401 to use the SDK middleware; the challenge still guides the client).
 func NewResourceVerifier(v Verifier, resolver *tenant.Resolver, st *store.Store) mcpauth.TokenVerifier {

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 // Package config loads and validates the server configuration from a YAML file.
 package config
 
@@ -82,8 +85,8 @@ func (c *Config) normalize() {
 	}
 }
 
-// Validate enforces structural rules and the spec §3 uniqueness guarantee:
-// no domain or email may map to more than one tenant.
+// Validate enforces structural rules and the uniqueness guarantee that no domain or
+// email maps to more than one tenant (so a caller can never resolve to two tenants).
 // It assumes normalize() has already been applied (as Load does), so domain
 // and email values have been lower-cased before duplicate detection runs.
 func (c *Config) Validate() error {

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Justin Hammond
+// SPDX-License-Identifier: MIT
+
 package store
 
 import "github.com/google/uuid"
@@ -45,7 +48,9 @@ type projectFacts struct {
 	GroupShares map[string]string    // group  -> "read"|"write"
 }
 
-// effectiveAccess implements spec §4: highest matching grant wins.
+// effectiveAccess returns the caller's access to a project: admin or owner gets write,
+// an "org" project grants every tenant member write, otherwise the highest matching
+// user/group share wins. Returns NoAccess if nothing applies (fail closed).
 func effectiveAccess(p projectFacts, id Identity) Access {
 	if id.IsAdmin || p.OwnerID == id.UserID {
 		return WriteAccess
