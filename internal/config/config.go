@@ -27,10 +27,16 @@ type Database struct {
 }
 
 type OIDC struct {
-	Issuer      string `mapstructure:"issuer"`
-	Audience    string `mapstructure:"audience"`
-	EmailClaim  string `mapstructure:"email_claim"`
-	GroupsClaim string `mapstructure:"groups_claim"`
+	Issuer string `mapstructure:"issuer"`
+	// DiscoveryURL, when set, overrides the standard OIDC discovery location
+	// (issuer + /.well-known/openid-configuration). Point it at a provider that
+	// publishes its metadata document at an off-spec path — e.g. an RFC 8414
+	// authorization-server metadata URL (/.well-known/oauth-authorization-server).
+	// The document's "issuer" must match Issuer or startup fails.
+	DiscoveryURL string `mapstructure:"discovery_url"`
+	Audience     string `mapstructure:"audience"`
+	EmailClaim   string `mapstructure:"email_claim"`
+	GroupsClaim  string `mapstructure:"groups_claim"`
 }
 
 type TenantSpec struct {

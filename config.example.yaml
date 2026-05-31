@@ -9,6 +9,9 @@ database:
 
 oidc:
   issuer: "https://idp.example.com"
+  # discovery_url: override OIDC discovery for providers that publish metadata at an
+  # off-spec path (e.g. RFC 8414). The document's "issuer" must equal issuer above.
+  # discovery_url: "https://idp.example.com/.well-known/oauth-authorization-server"
   audience: "mcp-docstore"                # the "aud" this resource server requires
   email_claim: "email"
   groups_claim: "groups"
