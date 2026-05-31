@@ -15,7 +15,7 @@ type getSectionIn struct {
 	Heading    string `json:"heading" jsonschema:"the markdown heading to fetch"`
 }
 type getSectionOut struct {
-	Content string `json:"content"`
+	Content string `json:"content" jsonschema:"the markdown content under the requested heading"`
 }
 type appendDocumentIn struct {
 	DocumentID string `json:"document_id" jsonschema:"the document id"`

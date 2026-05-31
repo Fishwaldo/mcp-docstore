@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -29,6 +30,21 @@ import (
 )
 
 const metadataPath = "/.well-known/oauth-protected-resource"
+
+// Version is the build version advertised in the MCP initialize handshake. Release builds
+// stamp it via -ldflags "-X github.com/Fishwaldo/mcp-docstore/cmd/server.Version=v1.2.3";
+// unstamped builds fall back to the module version the toolchain embeds, then to "dev".
+var Version = "dev"
+
+func resolveVersion() string {
+	if Version != "dev" {
+		return Version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return Version
+}
 
 // Run loads config and either serves HTTP (no subcommand / "serve") or runs a subcommand
 // ("rebuild-index"). It returns when ctx is cancelled (graceful shutdown) or on error.
@@ -99,7 +115,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 		{Source: cfg.PublicURL + "/icon-512.png", MIMEType: "image/png", Sizes: []string{"512x512"}},
 		{Source: cfg.PublicURL + "/icon-96.png", MIMEType: "image/png", Sizes: []string{"96x96"}},
 	}
-	mcpServer := imcp.NewMCPServer(svc, auth.IdentityFromRequest, logger, icons)
+	mcpServer := imcp.NewMCPServer(svc, auth.IdentityFromRequest, logger, icons, resolveVersion())
 
 	bearer := mcpauth.RequireBearerToken(
 		auth.NewResourceVerifier(oidcVerifier, resolver, st),

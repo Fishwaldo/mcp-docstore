@@ -16,7 +16,7 @@ import (
 func TestServerAdvertisesIcons(t *testing.T) {
 	svc, _, id, _ := newSvc(t)
 	icons := []sdk.Icon{{Source: "https://example.com/icon-512.png", MIMEType: "image/png", Sizes: []string{"512x512"}}}
-	srv := NewMCPServer(svc, func(*sdk.CallToolRequest) (store.Identity, bool) { return id, true }, nil, icons)
+	srv := NewMCPServer(svc, func(*sdk.CallToolRequest) (store.Identity, bool) { return id, true }, nil, icons, "test")
 	ct, st := sdk.NewInMemoryTransports()
 	ctx := context.Background()
 	_, err := srv.Connect(ctx, st, nil)

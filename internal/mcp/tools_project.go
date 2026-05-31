@@ -33,7 +33,7 @@ type updateProjectIn struct {
 	Visibility  *string `json:"visibility,omitempty" jsonschema:"new visibility: org or private"`
 }
 type archivedOut struct {
-	Archived bool `json:"archived"`
+	Archived bool `json:"archived" jsonschema:"the project's archived state after the call"`
 }
 
 func (r *registrar) registerProjectTools(srv *sdk.Server) {
@@ -54,7 +54,8 @@ func (r *registrar) registerProjectTools(srv *sdk.Server) {
 			return nil, out, nil
 		})
 
-	sdk.AddTool(srv, &sdk.Tool{Name: "create_project", Description: "Create a project. Visibility org (whole tenant) or private (default).", Annotations: mutatingAnno()},
+	sdk.AddTool(srv, &sdk.Tool{Name: "create_project", Description: "Create a project. Visibility org (whole tenant) or private (default).", Annotations: mutatingAnno(),
+		InputSchema: inputSchema[createProjectIn](map[string][]any{"visibility": {"org", "private"}})},
 		func(ctx context.Context, req *sdk.CallToolRequest, in createProjectIn) (*sdk.CallToolResult, projectOut, error) {
 			id, err := r.ident(req)
 			if err != nil {
@@ -88,7 +89,8 @@ func (r *registrar) registerProjectTools(srv *sdk.Server) {
 			return nil, toProjectOut(p), nil
 		})
 
-	sdk.AddTool(srv, &sdk.Tool{Name: "update_project", Description: "Update a project (owner/admin).", Annotations: mutatingAnno()},
+	sdk.AddTool(srv, &sdk.Tool{Name: "update_project", Description: "Update a project's name, description, and/or visibility (owner/admin). Omit a field to leave it unchanged.", Annotations: mutatingAnno(),
+		InputSchema: inputSchema[updateProjectIn](map[string][]any{"visibility": {"org", "private"}})},
 		func(ctx context.Context, req *sdk.CallToolRequest, in updateProjectIn) (*sdk.CallToolResult, projectOut, error) {
 			id, err := r.ident(req)
 			if err != nil {

@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -328,6 +329,66 @@ func TestToolAnnotations(t *testing.T) {
 	}
 }
 
+// schemaProps marshals a tool's input/output schema (typed as any over the wire) and
+// returns its "properties" map, so tests can assert on enums and descriptions regardless
+// of the schema's concrete Go type.
+func schemaProps(t *testing.T, schema any) map[string]any {
+	t.Helper()
+	b, err := json.Marshal(schema)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(b, &m))
+	props, ok := m["properties"].(map[string]any)
+	require.True(t, ok, "schema should have properties")
+	return props
+}
+
+func TestToolInputEnums(t *testing.T) {
+	svc, _, id, _ := newSvc(t)
+	cs := startServer(t, svc, id)
+	res, err := cs.ListTools(context.Background(), &sdk.ListToolsParams{})
+	require.NoError(t, err)
+	byName := map[string]*sdk.Tool{}
+	for _, tl := range res.Tools {
+		byName[tl.Name] = tl
+	}
+
+	cases := []struct {
+		tool, prop string
+		want       []any
+	}{
+		{"create_project", "visibility", []any{"org", "private"}},
+		{"update_project", "visibility", []any{"org", "private"}},
+		{"edit_document", "mode", []any{"replace", "section"}},
+		{"share_project", "permission", []any{"read", "write"}},
+		{"search_documents", "visibility", []any{"org", "private"}},
+	}
+	for _, c := range cases {
+		props := schemaProps(t, byName[c.tool].InputSchema)
+		prop, ok := props[c.prop].(map[string]any)
+		require.Truef(t, ok, "%s.%s missing from schema", c.tool, c.prop)
+		require.ElementsMatchf(t, c.want, prop["enum"], "%s.%s enum", c.tool, c.prop)
+	}
+}
+
+func TestToolOutputFieldsDescribed(t *testing.T) {
+	svc, _, id, _ := newSvc(t)
+	cs := startServer(t, svc, id)
+	res, err := cs.ListTools(context.Background(), &sdk.ListToolsParams{})
+	require.NoError(t, err)
+	byName := map[string]*sdk.Tool{}
+	for _, tl := range res.Tools {
+		byName[tl.Name] = tl
+	}
+
+	// The version field carries the optimistic-concurrency hint the agent needs.
+	props := schemaProps(t, byName["get_document"].OutputSchema)
+	version, ok := props["version"].(map[string]any)
+	require.True(t, ok, "documentOut.version missing from output schema")
+	desc, _ := version["description"].(string)
+	require.Contains(t, desc, "base_version")
+}
+
 func startServer(t *testing.T, svc *Service, id store.Identity) *sdk.ClientSession {
 	t.Helper()
 	return startServerWithClient(t, svc, id, nil)
@@ -336,7 +397,7 @@ func startServer(t *testing.T, svc *Service, id store.Identity) *sdk.ClientSessi
 func startServerWithClient(t *testing.T, svc *Service, id store.Identity, copts *sdk.ClientOptions) *sdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	srv := NewMCPServer(svc, func(*sdk.CallToolRequest) (store.Identity, bool) { return id, true }, nil, nil)
+	srv := NewMCPServer(svc, func(*sdk.CallToolRequest) (store.Identity, bool) { return id, true }, nil, nil, "test")
 	ct, st := sdk.NewInMemoryTransports()
 	_, err := srv.Connect(ctx, st, nil)
 	require.NoError(t, err)

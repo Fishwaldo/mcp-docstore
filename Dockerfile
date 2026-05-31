@@ -12,8 +12,9 @@ COPY . .
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/mcp-docstore .
+    go build -trimpath -ldflags="-s -w -X github.com/Fishwaldo/mcp-docstore/cmd/server.Version=${VERSION}" -o /out/mcp-docstore .
 
 # Pre-create the data dir so it can be copied in with nonroot ownership below.
 RUN mkdir -p /data

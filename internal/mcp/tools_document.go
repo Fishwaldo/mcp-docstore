@@ -41,7 +41,7 @@ type editDocumentIn struct {
 }
 
 func (r *registrar) registerDocumentTools(srv *sdk.Server) {
-	sdk.AddTool(srv, &sdk.Tool{Name: "list_documents", Description: "List documents in a project.", Annotations: readOnlyAnno()},
+	sdk.AddTool(srv, &sdk.Tool{Name: "list_documents", Description: "List documents in a project as summaries (id, title, overview, tags, version) without bodies; use get_document for the full body.", Annotations: readOnlyAnno()},
 		func(ctx context.Context, req *sdk.CallToolRequest, in projectIDIn) (*sdk.CallToolResult, listDocumentsOut, error) {
 			id, err := r.ident(req)
 			if err != nil {
@@ -98,7 +98,8 @@ func (r *registrar) registerDocumentTools(srv *sdk.Server) {
 			return nil, toDocumentOut(d), nil
 		})
 
-	sdk.AddTool(srv, &sdk.Tool{Name: "edit_document", Description: "Edit a document. mode=replace updates overview/body/tags wholesale; mode=section replaces one markdown section by heading. base_version must match the current version or the edit is rejected.", Annotations: mutatingAnno()},
+	sdk.AddTool(srv, &sdk.Tool{Name: "edit_document", Description: "Edit a document. mode=replace updates overview/body/tags wholesale; mode=section replaces one markdown section by heading. base_version must match the current version or the edit is rejected.", Annotations: mutatingAnno(),
+		InputSchema: inputSchema[editDocumentIn](map[string][]any{"mode": {"replace", "section"}})},
 		func(ctx context.Context, req *sdk.CallToolRequest, in editDocumentIn) (*sdk.CallToolResult, documentOut, error) {
 			id, err := r.ident(req)
 			if err != nil {

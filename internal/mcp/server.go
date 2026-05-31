@@ -58,13 +58,18 @@ Editing safely:
 - delete_project, delete_document, and restore_snapshot are guarded: confirm when prompted,
   or pass confirm=true if your client cannot prompt.`
 
-// NewMCPServer builds the MCP server with all tools registered.
-func NewMCPServer(svc *Service, identityFor identityFunc, log *slog.Logger, icons []sdk.Icon) *sdk.Server {
+// NewMCPServer builds the MCP server with all tools registered. version is advertised in
+// the initialize handshake (InitializeResult.ServerInfo.Version); callers pass the build
+// version, defaulting it to "dev" for unstamped local builds.
+func NewMCPServer(svc *Service, identityFor identityFunc, log *slog.Logger, icons []sdk.Icon, version string) *sdk.Server {
 	if log == nil {
 		log = slog.Default()
 	}
+	if version == "" {
+		version = "dev"
+	}
 	srv := sdk.NewServer(
-		&sdk.Implementation{Name: "mcp-docstore", Title: "MCP DocStore", Version: "0.4.0", Icons: icons},
+		&sdk.Implementation{Name: "mcp-docstore", Title: "MCP DocStore", Version: version, Icons: icons},
 		&sdk.ServerOptions{Instructions: serverInstructions, Logger: log},
 	)
 	r := &registrar{svc: svc, identityFor: identityFor, log: log}

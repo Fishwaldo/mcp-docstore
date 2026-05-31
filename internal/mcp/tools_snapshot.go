@@ -23,7 +23,7 @@ type diffVersionsIn struct {
 	ToVersion   int    `json:"to_version" jsonschema:"the newer version"`
 }
 type diffVersionsOut struct {
-	Diff string `json:"diff"`
+	Diff string `json:"diff" jsonschema:"unified diff of the body from from_version to to_version"`
 }
 
 func (r *registrar) registerSnapshotTools(srv *sdk.Server) {

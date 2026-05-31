@@ -10,12 +10,12 @@ import (
 )
 
 type projectOut struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Visibility  string `json:"visibility"`
-	Archived    bool   `json:"archived"`
-	Access      string `json:"access,omitempty"`
+	ID          string `json:"id" jsonschema:"project id (UUID); pass as project_id to other tools"`
+	Name        string `json:"name" jsonschema:"project name"`
+	Description string `json:"description" jsonschema:"project description"`
+	Visibility  string `json:"visibility" jsonschema:"org (whole tenant) or private"`
+	Archived    bool   `json:"archived" jsonschema:"true if archived (hidden from lists and search)"`
+	Access      string `json:"access,omitempty" jsonschema:"the caller's effective access to this project: none, read, or write"`
 }
 
 func toProjectOut(p *ent.Project) projectOut {
@@ -30,15 +30,15 @@ func toProjectOutWithAccess(p *ent.Project, access string) projectOut {
 }
 
 type documentOut struct {
-	ID            string   `json:"id"`
-	ProjectID     string   `json:"project_id,omitempty"`
-	Title         string   `json:"title"`
-	Overview      string   `json:"overview"`
-	Body          string   `json:"body"`
-	Tags          []string `json:"tags"`
-	Version       int      `json:"version"`
-	ChangeComment string   `json:"change_comment"`
-	UpdatedAt     string   `json:"updated_at"`
+	ID            string   `json:"id" jsonschema:"document id (UUID); pass as document_id to other tools"`
+	ProjectID     string   `json:"project_id,omitempty" jsonschema:"id of the project that contains this document"`
+	Title         string   `json:"title" jsonschema:"document title"`
+	Overview      string   `json:"overview" jsonschema:"short summary; scan this before fetching or searching full bodies"`
+	Body          string   `json:"body" jsonschema:"full markdown body"`
+	Tags          []string `json:"tags" jsonschema:"tags"`
+	Version       int      `json:"version" jsonschema:"current version; pass as base_version on the next edit so a stale write is rejected"`
+	ChangeComment string   `json:"change_comment" jsonschema:"comment recorded with the change that produced this version"`
+	UpdatedAt     string   `json:"updated_at" jsonschema:"last-modified time (RFC 3339)"`
 }
 
 func toDocumentOut(d *ent.Document) documentOut {
@@ -54,12 +54,12 @@ func toDocumentOut(d *ent.Document) documentOut {
 }
 
 type documentSummaryOut struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title"`
-	Overview  string   `json:"overview"`
-	Tags      []string `json:"tags"`
-	Version   int      `json:"version"`
-	UpdatedAt string   `json:"updated_at"`
+	ID        string   `json:"id" jsonschema:"document id (UUID); pass as document_id to other tools"`
+	Title     string   `json:"title" jsonschema:"document title"`
+	Overview  string   `json:"overview" jsonschema:"short summary (no body); use get_document for the full body"`
+	Tags      []string `json:"tags" jsonschema:"tags"`
+	Version   int      `json:"version" jsonschema:"current version; pass as base_version when editing"`
+	UpdatedAt string   `json:"updated_at" jsonschema:"last-modified time (RFC 3339)"`
 }
 
 func toDocumentSummary(d *ent.Document) documentSummaryOut {
@@ -67,10 +67,10 @@ func toDocumentSummary(d *ent.Document) documentSummaryOut {
 }
 
 type snapshotMetaOut struct {
-	Version   int    `json:"version"`
-	Comment   string `json:"comment"`
-	CreatedBy string `json:"created_by"`
-	CreatedAt string `json:"created_at"`
+	Version   int    `json:"version" jsonschema:"the snapshot's version number; pass as version to get_snapshot/restore_snapshot"`
+	Comment   string `json:"comment" jsonschema:"change comment recorded for this version"`
+	CreatedBy string `json:"created_by" jsonschema:"email (or id) of the user who created this version"`
+	CreatedAt string `json:"created_at" jsonschema:"time the version was created (RFC 3339)"`
 }
 
 func toSnapshotMeta(s *ent.DocumentSnapshot) snapshotMetaOut {
@@ -86,11 +86,11 @@ func toSnapshotMeta(s *ent.DocumentSnapshot) snapshotMetaOut {
 }
 
 type snapshotOut struct {
-	Version  int      `json:"version"`
-	Overview string   `json:"overview"`
-	Body     string   `json:"body"`
-	Tags     []string `json:"tags"`
-	Comment  string   `json:"comment"`
+	Version  int      `json:"version" jsonschema:"the snapshot's version number"`
+	Overview string   `json:"overview" jsonschema:"the document overview at this version"`
+	Body     string   `json:"body" jsonschema:"the full markdown body at this version"`
+	Tags     []string `json:"tags" jsonschema:"the document tags at this version"`
+	Comment  string   `json:"comment" jsonschema:"change comment recorded for this version"`
 }
 
 func toSnapshotOut(s *ent.DocumentSnapshot) snapshotOut {
@@ -98,19 +98,19 @@ func toSnapshotOut(s *ent.DocumentSnapshot) snapshotOut {
 }
 
 type searchHitOut struct {
-	DocumentID string  `json:"document_id"`
-	ProjectID  string  `json:"project_id"`
-	Title      string  `json:"title"`
-	Overview   string  `json:"overview"`
-	Score      float64 `json:"score"`
-	Snippet    string  `json:"snippet"`
+	DocumentID string  `json:"document_id" jsonschema:"matching document id; pass as document_id to get_document"`
+	ProjectID  string  `json:"project_id" jsonschema:"id of the project that contains the document"`
+	Title      string  `json:"title" jsonschema:"document title"`
+	Overview   string  `json:"overview" jsonschema:"document overview"`
+	Score      float64 `json:"score" jsonschema:"relevance score; higher is a better match, comparable only within this result set"`
+	Snippet    string  `json:"snippet" jsonschema:"excerpt of the body around the match"`
 }
 
 type shareUserOut struct {
-	Email      string `json:"email"`
-	Permission string `json:"permission"`
+	Email      string `json:"email" jsonschema:"the shared user's email"`
+	Permission string `json:"permission" jsonschema:"read or write"`
 }
 type shareGroupOut struct {
-	Group      string `json:"group"`
-	Permission string `json:"permission"`
+	Group      string `json:"group" jsonschema:"the shared group name"`
+	Permission string `json:"permission" jsonschema:"read or write"`
 }

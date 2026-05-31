@@ -12,9 +12,9 @@ import (
 )
 
 type searchDocumentsIn struct {
-	Query      string   `json:"query" jsonschema:"plain keywords/phrase to search for"`
+	Query      string   `json:"query" jsonschema:"plain keywords or a phrase; query operators (AND/OR, field:value, wildcards) are not supported and are treated as literal text"`
 	ProjectID  string   `json:"project_id,omitempty" jsonschema:"optional project filter"`
-	Visibility string   `json:"visibility,omitempty" jsonschema:"optional visibility filter: org|private"`
+	Visibility string   `json:"visibility,omitempty" jsonschema:"optional visibility filter: org or private"`
 	Tags       []string `json:"tags,omitempty" jsonschema:"optional tag filter (all must match)"`
 	Limit      int      `json:"limit,omitempty" jsonschema:"max results (default 20)"`
 }
@@ -23,7 +23,8 @@ type searchDocumentsOut struct {
 }
 
 func (r *registrar) registerSearchTool(srv *sdk.Server) {
-	sdk.AddTool(srv, &sdk.Tool{Name: "search_documents", Description: "Full-text search across documents the caller can read. Returns ranked hits with snippets.", Annotations: readOnlyAnno()},
+	sdk.AddTool(srv, &sdk.Tool{Name: "search_documents", Description: "Full-text search across documents the caller can read, using plain keywords (no query-operator syntax). Returns ranked hits with snippets. Archived projects are excluded.", Annotations: readOnlyAnno(),
+		InputSchema: inputSchema[searchDocumentsIn](map[string][]any{"visibility": {"org", "private"}})},
 		func(ctx context.Context, req *sdk.CallToolRequest, in searchDocumentsIn) (*sdk.CallToolResult, searchDocumentsOut, error) {
 			id, err := r.ident(req)
 			if err != nil {

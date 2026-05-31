@@ -19,7 +19,8 @@ func TestServerInfoAndInstructions(t *testing.T) {
 	require.NotNil(t, init.ServerInfo)
 	require.Equal(t, "mcp-docstore", init.ServerInfo.Name)
 	require.Equal(t, "MCP DocStore", init.ServerInfo.Title)
-	require.NotEmpty(t, init.ServerInfo.Version)
+	// startServer passes "test" as the build version; it must be advertised verbatim.
+	require.Equal(t, "test", init.ServerInfo.Version)
 
 	// Instructions are advertised and mention the core model concepts.
 	require.NotEmpty(t, init.Instructions)

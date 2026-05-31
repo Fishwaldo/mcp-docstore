@@ -63,10 +63,12 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          VERSION: ${{ needs.prepare.outputs.tag }}
         run: |
           bin="mcp-docstore"
           [ "$GOOS" = "windows" ] && bin="mcp-docstore.exe"
-          go build -trimpath -ldflags="-s -w" -o "dist/$bin" .
+          ldflags="-s -w -X github.com/Fishwaldo/mcp-docstore/cmd/server.Version=${VERSION}"
+          go build -trimpath -ldflags="$ldflags" -o "dist/$bin" .
 
       - name: Package
         run: |
@@ -150,6 +152,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.tag }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

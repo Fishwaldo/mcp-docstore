@@ -27,7 +27,7 @@ type restoreSnapshotIn struct {
 	Confirm     bool   `json:"confirm,omitempty" jsonschema:"set true to confirm when the client cannot prompt interactively"`
 }
 type deletedOut struct {
-	Deleted bool `json:"deleted"`
+	Deleted bool `json:"deleted" jsonschema:"true once the item has been permanently deleted"`
 }
 
 func (r *registrar) registerDestructiveTools(srv *sdk.Server) {
