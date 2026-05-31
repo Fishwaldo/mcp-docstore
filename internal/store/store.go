@@ -18,7 +18,9 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/tenant"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
-	_ "modernc.org/sqlite"
+	_ "github.com/go-sql-driver/mysql" // registers "mysql" driver
+	_ "github.com/jackc/pgx/v5/stdlib" // registers "pgx" driver
+	_ "modernc.org/sqlite"             // registers "sqlite" driver
 )
 
 type Store struct {
