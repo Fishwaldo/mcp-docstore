@@ -1,0 +1,99 @@
+name: Release Notes
+
+# Rewrites a release body with AI-authored notes derived from the diff between the previous
+# tag and this one. It runs on workflow_run (after the Release workflow finishes) rather
+# than inside Release, because claude-code-action only supports a fixed set of events and
+# rejects the "push" event that a tag push triggers. workflow_run is supported, fires once
+# the GitHub Release already exists, and needs no PAT (unlike repository_dispatch).
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to (re)generate release notes for, e.g. v0.4.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    # On workflow_run, only proceed for a Release that succeeded and was triggered by a tag
+    # push (skip manual/failed Release runs). workflow_dispatch always proceeds.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve tag
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          # For a tag push, workflow_run.head_branch carries the tag name.
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$DISPATCH_TAG"
+          else
+            tag="$RUN_HEAD_BRANCH"
+          fi
+          case "$tag" in
+            v*) ;;
+            *) echo "::error::resolved tag '$tag' is not a vN release tag"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release notes for $tag"
+
+      - name: Check for Claude token
+        id: gate
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN not set — keeping auto-generated release notes."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Generate release notes with Claude
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # so the gh CLI Claude invokes is authenticated
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            Write release notes for git tag ${{ steps.resolve.outputs.tag }} of this repository, then publish them.
+
+            1. Find the previous tag:
+                 prev=$(git describe --tags --abbrev=0 "${{ steps.resolve.outputs.tag }}^" 2>/dev/null)
+               If there is no previous tag, treat the range as the whole history.
+            2. Inspect what changed between $prev and ${{ steps.resolve.outputs.tag }}:
+                 git log --no-merges --pretty=format:'%s' "$prev..${{ steps.resolve.outputs.tag }}"
+                 git diff --stat "$prev..${{ steps.resolve.outputs.tag }}"
+            3. Write concise, user-facing Markdown release notes: a one-line summary, then
+               sections "Added" / "Changed" / "Fixed" (omit any empty section). Be factual —
+               derive everything from the actual changes; do not invent features. Save to
+               release-notes.md.
+            4. Publish them as the release body:
+                 gh release edit "${{ steps.resolve.outputs.tag }}" --notes-file release-notes.md
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 15
+            --allowedTools "Bash(git:*),Bash(gh:*),Read,Write,Edit"
