@@ -127,7 +127,11 @@ func (i *Index) Search(q Query) ([]Result, error) {
 	}
 	req := bleve.NewSearchRequestOptions(boolQ, limit, 0, false)
 	req.Fields = []string{"title", "overview", "project_id"}
+	// Highlight only the human-readable fields. Without this restriction Bleve also
+	// highlights the identity fields matched by accessDisjunction (owner_id,
+	// shared_user_ids), so the snippet would echo the caller's own UUID.
 	req.Highlight = bleve.NewHighlight()
+	req.Highlight.Fields = []string{"title", "overview", "body"}
 
 	sr, err := i.idx.Search(req)
 	if err != nil {
@@ -142,8 +146,10 @@ func (i *Index) Search(q Query) ([]Result, error) {
 			Overview:   stringField(hit.Fields, "overview"),
 			ProjectID:  stringField(hit.Fields, "project_id"),
 		}
-		for _, frags := range hit.Fragments {
-			if len(frags) > 0 {
+		// Pick the fragment by a fixed field priority; hit.Fragments is a map, so
+		// iterating it directly would choose nondeterministically across calls.
+		for _, f := range []string{"body", "overview", "title"} {
+			if frags := hit.Fragments[f]; len(frags) > 0 {
 				r.Snippet = frags[0]
 				break
 			}

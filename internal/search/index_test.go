@@ -132,3 +132,23 @@ func TestSearchNoTextMatchesAllAccessible(t *testing.T) {
 	require.True(t, got["own"] && got["org"] && got["ushare"] && got["gshare"])
 	require.False(t, got["noaccess"] || got["archived"] || got["othertenant"])
 }
+
+// The access disjunction matches a document on identity fields (owner_id,
+// shared_user_ids) using the caller's own UUID. Those fields must never be
+// highlighted, or the snippet echoes the identity value instead of the text.
+func TestSearchSnippetExcludesIdentityFields(t *testing.T) {
+	idx := openTemp(t)
+	const ownerUUID = "6faa5061-14f5-4115-a92e-5b8cb73ecfc1"
+	require.NoError(t, idx.Put(Doc{
+		ID: "d1", TenantID: "t1", ProjectID: "p1", OwnerID: ownerUUID,
+		Visibility: "private", Title: "notes", Body: "alpha beta gamma",
+	}))
+	// hit.Fragments is a map; a single call can pick the text field by chance even
+	// when identity fields are wrongly highlighted, so assert across many calls.
+	for i := 0; i < 30; i++ {
+		res, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: ownerUUID})
+		require.NoError(t, err)
+		require.Len(t, res, 1)
+		require.NotContains(t, res[0].Snippet, ownerUUID, "snippet must not echo the owner UUID")
+	}
+}
