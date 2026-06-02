@@ -7,6 +7,8 @@ max_request_bytes: 4194304                 # cap request body bytes on the MCP e
 
 database:
   driver: sqlite                          # sqlite | mysql | postgres
+  # sqlite REQUIRES _pragma=foreign_keys(1) in the DSN: foreign keys are off by default,
+  # and the server fails fast at startup without it (cascade deletes would orphan rows).
   dsn: "file:./data/docstore.db?_pragma=foreign_keys(1)"
 
 oidc:

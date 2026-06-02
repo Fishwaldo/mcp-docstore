@@ -26,6 +26,18 @@ func TestOpenAndMigrate(t *testing.T) {
 	require.NotNil(t, s.client)
 }
 
+func TestOpenSQLiteRequiresForeignKeysPragma(t *testing.T) {
+	// No _pragma=foreign_keys(1): cascade deletes would silently orphan rows, so Open
+	// must fail fast rather than run with FKs off.
+	_, err := Open("sqlite", "file:nofk-"+t.Name()+"?mode=memory&cache=shared")
+	require.Error(t, err)
+
+	// With the pragma, Open succeeds.
+	s, err := Open("sqlite", "file:fk-"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+}
+
 func TestUpsertTenantAndUser(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

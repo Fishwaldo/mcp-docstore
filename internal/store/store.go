@@ -74,12 +74,34 @@ func Open(driver, dsn string, opts ...Option) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	if driver == "sqlite" {
+		if err := assertForeignKeysEnabled(db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
 	drv := entsql.OpenDB(entD, db)
 	s := &Store{client: ent.NewClient(ent.Driver(drv)), retention: 10}
 	for _, o := range opts {
 		o(s)
 	}
 	return s, nil
+}
+
+// assertForeignKeysEnabled fails fast when the sqlite connection has foreign keys off.
+// Cascade deletes (DeleteProject removing documents/snapshots/shares) depend on FK
+// enforcement; without it the cascade silently orphans rows. The pragma is per-connection
+// in sqlite, so it must be set in the DSN (e.g. _pragma=foreign_keys(1)). mysql/postgres
+// enforce FKs natively and are not checked here.
+func assertForeignKeysEnabled(db *sql.DB) error {
+	var on int
+	if err := db.QueryRow("PRAGMA foreign_keys;").Scan(&on); err != nil {
+		return fmt.Errorf("check sqlite foreign_keys pragma: %w", err)
+	}
+	if on == 0 {
+		return fmt.Errorf("%w: sqlite foreign keys are disabled; add _pragma=foreign_keys(1) to the DSN so cascade deletes don't orphan rows", ErrInvalid)
+	}
+	return nil
 }
 
 // Migrate runs the ent schema migration against the database.
