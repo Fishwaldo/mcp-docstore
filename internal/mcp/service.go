@@ -260,7 +260,6 @@ func (s *Service) DeleteProject(ctx context.Context, id store.Identity, projectI
 	// Per-doc: log and continue rather than aborting, so one index failure can't strand
 	// the remaining evictions. Reconcile-on-read drops any that survive in the index.
 	for _, docID := range removed {
-		docID := docID
 		s.syncIndex("remove", docID, func() error { return s.index.Remove(docID) })
 	}
 	return nil
