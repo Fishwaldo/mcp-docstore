@@ -18,8 +18,8 @@ type Config struct {
 	SnapshotRetention int    `mapstructure:"snapshot_retention"`
 	BleveIndexPath    string `mapstructure:"bleve_index_path"`
 	// SessionTimeout reaps idle Streamable HTTP sessions after this duration with no
-	// requests, bounding per-session bookkeeping. Zero means sessions are never
-	// reaped (the SDK default).
+	// requests, bounding per-session bookkeeping. Must be positive; a zero or negative
+	// value is rejected by Validate (Load defaults it to 2m when unset).
 	SessionTimeout time.Duration `mapstructure:"session_timeout"`
 	// MaxRequestBytes caps the request body size accepted on the MCP endpoint, via
 	// http.MaxBytesReader, to bound memory on a single request. Defaults to 4 MiB.
@@ -134,6 +134,9 @@ func (c *Config) Validate() error {
 	}
 	if c.BleveIndexPath == "" {
 		return fmt.Errorf("bleve_index_path is required")
+	}
+	if c.SessionTimeout <= 0 {
+		return fmt.Errorf("session_timeout must be positive (got %s)", c.SessionTimeout)
 	}
 	seenKey := map[string]bool{}
 	seenDomain := map[string]string{}

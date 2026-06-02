@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -142,6 +143,42 @@ tenants:
 	cfg, err := Load(path)
 	require.NoError(t, err)
 	require.Equal(t, int64(4<<20), cfg.MaxRequestBytes) // default 4 MiB
+}
+
+func TestValidateRejectsNonPositiveSessionTimeout(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"zero", "session_timeout: 0\n"},
+		{"negative", "session_timeout: -5s\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`+tc.val)
+			_, err := Load(path)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "session_timeout")
+		})
+	}
+}
+
+func TestSessionTimeoutPositiveOK(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+session_timeout: 30s
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 30*time.Second, cfg.SessionTimeout)
 }
 
 func TestValidateRejectsDuplicateDomain(t *testing.T) {
