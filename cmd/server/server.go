@@ -172,8 +172,9 @@ func servePNG(b []byte) http.HandlerFunc {
 }
 
 // maxBytes caps the request body on the MCP route via http.MaxBytesReader, bounding
-// memory consumed by a single request. The reader yields a 413 when the limit is
-// exceeded; we set it before the rest of the chain so every downstream reader is bounded.
+// memory consumed by a single request. When the limit is exceeded the body read fails
+// and the request is rejected by the downstream handler. The cap is applied at the
+// outermost layer so every downstream reader is bounded.
 func maxBytes(limit int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
