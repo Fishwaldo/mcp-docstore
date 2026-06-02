@@ -134,9 +134,21 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	}))
 	mux.Handle("/icon-512.png", servePNG(assets.Icon512PNG))
 	mux.Handle("/icon-96.png", servePNG(assets.Icon96PNG))
-	mux.Handle("/", logRequests(logger, bearer(streamable)))
+	mcpHandler := logRequests(logger, bearer(streamable))
+	mux.Handle("/", maxBytes(cfg.MaxRequestBytes, mcpHandler))
 
-	httpSrv := &http.Server{Addr: cfg.ListenAddr, Handler: mux}
+	// ReadTimeout / WriteTimeout are deliberately NOT set: Streamable HTTP holds
+	// long-lived SSE response streams, and a write deadline would sever them
+	// mid-stream. ReadHeaderTimeout still defends against slow-header (slow-loris)
+	// attacks, IdleTimeout reaps idle keep-alive conns, and MaxHeaderBytes caps
+	// header memory. The request body is bounded per-route by maxBytes above.
+	httpSrv := &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -157,6 +169,18 @@ func servePNG(b []byte) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		_, _ = w.Write(b)
 	}
+}
+
+// maxBytes caps the request body on the MCP route via http.MaxBytesReader, bounding
+// memory consumed by a single request. The reader yields a 413 when the limit is
+// exceeded; we set it before the rest of the chain so every downstream reader is bounded.
+func maxBytes(limit int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // logRequests is minimal slog request logging. It never logs the Authorization header.

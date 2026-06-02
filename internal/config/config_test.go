@@ -128,6 +128,22 @@ tenants:
 	require.ErrorContains(t, err, "oidc.email_verified_policy")
 }
 
+func TestMaxRequestBytesDefaults(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, int64(4<<20), cfg.MaxRequestBytes) // default 4 MiB
+}
+
 func TestValidateRejectsDuplicateDomain(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"

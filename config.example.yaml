@@ -3,6 +3,7 @@ public_url: "https://docs.example.com"   # public base URL; used in protected-re
 snapshot_retention: 10
 bleve_index_path: "./data/index.bleve"
 session_timeout: 2m                        # reap idle Streamable HTTP sessions after this; 0 = never reap
+max_request_bytes: 4194304                 # cap request body bytes on the MCP endpoint (4 MiB); oversized -> 413
 
 database:
   driver: sqlite                          # sqlite | mysql | postgres

@@ -21,9 +21,12 @@ type Config struct {
 	// requests, bounding per-session bookkeeping. Zero means sessions are never
 	// reaped (the SDK default).
 	SessionTimeout time.Duration `mapstructure:"session_timeout"`
-	Database       Database      `mapstructure:"database"`
-	OIDC           OIDC          `mapstructure:"oidc"`
-	Tenants        []TenantSpec  `mapstructure:"tenants"`
+	// MaxRequestBytes caps the request body size accepted on the MCP endpoint, via
+	// http.MaxBytesReader, to bound memory on a single request. Defaults to 4 MiB.
+	MaxRequestBytes int64        `mapstructure:"max_request_bytes"`
+	Database        Database     `mapstructure:"database"`
+	OIDC            OIDC         `mapstructure:"oidc"`
+	Tenants         []TenantSpec `mapstructure:"tenants"`
 }
 
 type Database struct {
@@ -68,6 +71,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("listen_addr", ":8080")
 	v.SetDefault("snapshot_retention", 10)
 	v.SetDefault("session_timeout", 2*time.Minute)
+	v.SetDefault("max_request_bytes", 4<<20)
 	v.SetDefault("oidc.email_claim", "email")
 	v.SetDefault("oidc.groups_claim", "groups")
 	v.SetDefault("oidc.email_verified_policy", "require")
