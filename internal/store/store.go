@@ -9,7 +9,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -18,6 +17,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/tenant"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
+	tenantcfg "github.com/Fishwaldo/mcp-docstore/internal/tenant"
 	_ "github.com/go-sql-driver/mysql" // registers "mysql" driver
 	_ "github.com/jackc/pgx/v5/stdlib" // registers "pgx" driver
 	_ "modernc.org/sqlite"             // registers "sqlite" driver
@@ -146,7 +146,7 @@ func (s *Store) UpsertUser(ctx context.Context, tenantID uuid.UUID, subject, ema
 	if subject == "" {
 		return nil, fmt.Errorf("%w: empty subject", ErrInvalid)
 	}
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = tenantcfg.Normalize(email)
 	role := user.RoleMember
 	if isAdmin {
 		role = user.RoleAdmin

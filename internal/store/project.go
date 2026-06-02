@@ -6,7 +6,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/projectshare"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/tenant"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
+	tenantcfg "github.com/Fishwaldo/mcp-docstore/internal/tenant"
 )
 
 // loadProject fetches a project within the caller's tenant with shares eager-loaded.
@@ -285,7 +285,7 @@ func (s *Store) ShareProjectUsers(ctx context.Context, id Identity, projectID uu
 
 	res := &ShareResult{}
 	for _, email := range emails {
-		email = strings.ToLower(strings.TrimSpace(email))
+		email = tenantcfg.Normalize(email)
 		u, uerr := tx.User.Query().
 			Where(user.EmailEQ(email), user.HasTenantWith(tenant.IDEQ(id.TenantID))).
 			Only(ctx)
@@ -426,7 +426,7 @@ func (s *Store) UnshareProjectUsers(ctx context.Context, id Identity, projectID 
 	for _, email := range emails {
 		// Tenant-scoped: email is not globally unique, so resolve only within the
 		// caller's tenant (mirrors ShareProjectUsers; prevents cross-tenant matches).
-		email = strings.ToLower(strings.TrimSpace(email))
+		email = tenantcfg.Normalize(email)
 		u, uerr := tx.User.Query().
 			Where(user.EmailEQ(email), user.HasTenantWith(tenant.IDEQ(id.TenantID))).
 			Only(ctx)
