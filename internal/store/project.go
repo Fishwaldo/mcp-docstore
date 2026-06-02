@@ -182,6 +182,14 @@ func (s *Store) requireOwnerProject(ctx context.Context, id Identity, projectID 
 	return nil, ErrPermission
 }
 
+// EnsureProjectOwner asserts the caller is the project's owner or a tenant admin, reusing
+// requireOwnerProject's existence-hiding semantics (ErrNotFound for no access, ErrPermission
+// for a visible-but-not-owned project).
+func (s *Store) EnsureProjectOwner(ctx context.Context, id Identity, projectID uuid.UUID) error {
+	_, err := s.requireOwnerProject(ctx, id, projectID)
+	return err
+}
+
 // ArchiveProject hides a project from listings and search (owner/admin only, reversible).
 func (s *Store) ArchiveProject(ctx context.Context, id Identity, projectID uuid.UUID) error {
 	p, err := s.requireOwnerProject(ctx, id, projectID)

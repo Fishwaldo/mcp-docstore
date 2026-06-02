@@ -282,3 +282,14 @@ func (s *Store) DeleteDocument(ctx context.Context, id Identity, documentID uuid
 	}
 	return s.client.Document.DeleteOneID(documentID).Exec(ctx)
 }
+
+// EnsureDocumentWritable loads a document and asserts the caller has WriteAccess, reusing
+// the same load + access rule as the mutating paths. Returns ErrNotFound (missing / no
+// access) or ErrPermission (read where write is needed).
+func (s *Store) EnsureDocumentWritable(ctx context.Context, id Identity, documentID uuid.UUID) error {
+	d, err := s.loadDocument(ctx, id, documentID)
+	if err != nil {
+		return err
+	}
+	return s.documentAccess(d, id, WriteAccess)
+}

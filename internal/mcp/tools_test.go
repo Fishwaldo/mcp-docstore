@@ -203,6 +203,40 @@ func declineClient() *sdk.ClientOptions {
 	}
 }
 
+func TestDeleteDocumentReadOnlyDeniedBeforeConfirm(t *testing.T) {
+	svc, st, owner, pid := newSvc(t)
+	ctx := context.Background()
+	d, err := svc.CreateDocument(ctx, owner, pid, store.NewDocument{Title: "T", Body: "keep me"})
+	require.NoError(t, err)
+	// bob has READ access only.
+	bobEnt, err := st.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com", false)
+	require.NoError(t, err)
+	bob := store.Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
+	_, err = svc.ShareUsers(ctx, owner, pid, []string{"bob@acme.com"}, "read")
+	require.NoError(t, err)
+	// Server runs as bob, with an elicitation client that records whether it was prompted
+	// and would ACCEPT if it ever were. The guard must reject before any elicitation, so
+	// the handler must never fire.
+	prompted := false
+	cs := startServerWithClient(t, svc, bob, &sdk.ClientOptions{
+		ElicitationHandler: func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+			prompted = true
+			return &sdk.ElicitResult{Action: "accept"}, nil
+		},
+	})
+	res, err := cs.CallTool(ctx, &sdk.CallToolParams{
+		Name:      "delete_document",
+		Arguments: map[string]any{"document_id": d.ID.String()},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError) // permission denied, returned before any confirm/elicit
+	require.False(t, prompted, "guard must deny before any elicitation prompt fires")
+	// The document still exists (owner can read it) — confirm was never reached.
+	got, err := svc.GetDocument(ctx, owner, d.ID)
+	require.NoError(t, err)
+	require.Equal(t, d.ID, got.ID)
+}
+
 func TestDeleteDocumentElicitAccept(t *testing.T) {
 	svc, _, id, pid := newSvc(t)
 	cs := startServerWithClient(t, svc, id, acceptClient())

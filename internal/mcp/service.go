@@ -66,6 +66,21 @@ func (s *Service) ListSnapshots(ctx context.Context, id store.Identity, docID uu
 	return s.store.ListSnapshots(ctx, id, docID)
 }
 
+// EnsureDocumentWritable verifies the caller has write access to the document, returning
+// store.ErrPermission (lacks write) or store.ErrNotFound (no access / does not exist).
+// Used to gate a destructive tool before it prompts for confirmation, so a caller who
+// can't perform the action is rejected without an elicitation round-trip.
+func (s *Service) EnsureDocumentWritable(ctx context.Context, id store.Identity, docID uuid.UUID) error {
+	return s.store.EnsureDocumentWritable(ctx, id, docID)
+}
+
+// EnsureProjectOwner verifies the caller owns the project (or is a tenant admin),
+// returning store.ErrPermission or store.ErrNotFound. Gates delete_project before its
+// confirmation prompt.
+func (s *Service) EnsureProjectOwner(ctx context.Context, id store.Identity, projectID uuid.UUID) error {
+	return s.store.EnsureProjectOwner(ctx, id, projectID)
+}
+
 func (s *Service) GetSnapshot(ctx context.Context, id store.Identity, docID uuid.UUID, version int) (*ent.DocumentSnapshot, error) {
 	return s.store.GetSnapshot(ctx, id, docID, version)
 }

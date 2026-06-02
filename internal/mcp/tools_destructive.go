@@ -41,6 +41,9 @@ func (r *registrar) registerDestructiveTools(srv *sdk.Server) {
 			if err != nil {
 				return nil, deletedOut{}, errInvalidArg("document_id")
 			}
+			if err := r.svc.EnsureDocumentWritable(ctx, id, docID); err != nil {
+				return nil, deletedOut{}, toolErr(err)
+			}
 			d, err := r.svc.GetDocument(ctx, id, docID)
 			if err != nil {
 				return nil, deletedOut{}, toolErr(err)
@@ -63,6 +66,9 @@ func (r *registrar) registerDestructiveTools(srv *sdk.Server) {
 			pid, err := uuid.Parse(in.ProjectID)
 			if err != nil {
 				return nil, deletedOut{}, errInvalidArg("project_id")
+			}
+			if err := r.svc.EnsureProjectOwner(ctx, id, pid); err != nil {
+				return nil, deletedOut{}, toolErr(err)
 			}
 			p, err := r.svc.GetProject(ctx, id, pid)
 			if err != nil {
@@ -90,6 +96,9 @@ func (r *registrar) registerDestructiveTools(srv *sdk.Server) {
 			docID, err := uuid.Parse(in.DocumentID)
 			if err != nil {
 				return nil, documentOut{}, errInvalidArg("document_id")
+			}
+			if err := r.svc.EnsureDocumentWritable(ctx, id, docID); err != nil {
+				return nil, documentOut{}, toolErr(err)
 			}
 			snap, err := r.svc.GetSnapshot(ctx, id, docID, in.Version)
 			if err != nil {
