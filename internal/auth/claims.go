@@ -15,6 +15,10 @@ type Claims struct {
 	Email   string    // used to resolve the tenant by domain/address
 	Groups  []string  // from the configured groups claim; drives group shares
 	Expiry  time.Time // token "exp"; required by the SDK bearer middleware
+	// EmailVerified is the decoded "email_verified" claim: nil when the claim is
+	// absent, else the decoded boolean. The email_verified policy decides whether
+	// an absent or false value rejects the token.
+	EmailVerified *bool
 }
 
 // Verifier validates a raw bearer token and returns its claims. Implementations must

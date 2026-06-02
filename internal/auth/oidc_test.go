@@ -72,7 +72,7 @@ func startOIDCAtPath(t *testing.T, metadataPath string) (issuer, metadataURL str
 func TestOIDCVerifierDiscoveryURL(t *testing.T) {
 	ctx := context.Background()
 	issuer, metadataURL, sign := startOIDCAtPath(t, "/.well-known/oauth-authorization-server")
-	v, err := NewOIDCVerifier(ctx, issuer, metadataURL, "mcp-docstore", "email", "groups")
+	v, err := NewOIDCVerifier(ctx, issuer, metadataURL, "mcp-docstore", "email", "groups", "off")
 	require.NoError(t, err)
 
 	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
@@ -91,21 +91,21 @@ func TestOIDCVerifierDiscoveryURLRejectsIssuerMismatch(t *testing.T) {
 	_, metadataURL, _ := startOIDCAtPath(t, "/.well-known/oauth-authorization-server")
 	// The metadata document's issuer is the server URL; a different configured issuer
 	// must fail construction rather than silently trusting the document's keys.
-	_, err := NewOIDCVerifier(ctx, "https://wrong.example.com", metadataURL, "mcp-docstore", "email", "groups")
+	_, err := NewOIDCVerifier(ctx, "https://wrong.example.com", metadataURL, "mcp-docstore", "email", "groups", "off")
 	require.Error(t, err)
 }
 
 func TestOIDCVerifierDiscoveryURLRejectsMissingDocument(t *testing.T) {
 	ctx := context.Background()
 	issuer, _, _ := startOIDCAtPath(t, "/.well-known/oauth-authorization-server")
-	_, err := NewOIDCVerifier(ctx, issuer, issuer+"/.well-known/does-not-exist", "mcp-docstore", "email", "groups")
+	_, err := NewOIDCVerifier(ctx, issuer, issuer+"/.well-known/does-not-exist", "mcp-docstore", "email", "groups", "off")
 	require.Error(t, err)
 }
 
 func TestOIDCVerifierVerifiesAndExtractsClaims(t *testing.T) {
 	ctx := context.Background()
 	issuer, sign := startOIDC(t)
-	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups")
+	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
 	require.NoError(t, err)
 
 	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
@@ -124,7 +124,7 @@ func TestOIDCVerifierVerifiesAndExtractsClaims(t *testing.T) {
 func TestOIDCVerifierRejectsWrongAudience(t *testing.T) {
 	ctx := context.Background()
 	issuer, sign := startOIDC(t)
-	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups")
+	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
 	require.NoError(t, err)
 
 	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
@@ -136,7 +136,7 @@ func TestOIDCVerifierRejectsWrongAudience(t *testing.T) {
 func TestOIDCVerifierRejectsExpired(t *testing.T) {
 	ctx := context.Background()
 	issuer, sign := startOIDC(t)
-	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups")
+	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
 	require.NoError(t, err)
 
 	past := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
@@ -148,7 +148,7 @@ func TestOIDCVerifierRejectsExpired(t *testing.T) {
 func TestOIDCVerifierRejectsWrongSigningKey(t *testing.T) {
 	ctx := context.Background()
 	issuer, _ := startOIDC(t)
-	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups")
+	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
 	require.NoError(t, err)
 
 	// Sign with a key the server does NOT publish → signature must not verify.
@@ -164,7 +164,7 @@ func TestOIDCVerifierRejectsWrongSigningKey(t *testing.T) {
 func TestOIDCVerifierRejectsWrongIssuer(t *testing.T) {
 	ctx := context.Background()
 	issuer, sign := startOIDC(t)
-	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups")
+	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
 	require.NoError(t, err)
 
 	// Validly signed + correct aud + not expired, but claims a different issuer.
@@ -176,6 +176,37 @@ func TestOIDCVerifierRejectsWrongIssuer(t *testing.T) {
 
 func TestOIDCVerifierRequiresAudience(t *testing.T) {
 	issuer, _ := startOIDC(t)
-	_, err := NewOIDCVerifier(context.Background(), issuer, "", "", "email", "groups")
+	_, err := NewOIDCVerifier(context.Background(), issuer, "", "", "email", "groups", "off")
 	require.Error(t, err)
+}
+
+func TestOIDCVerifierExtractsEmailVerified(t *testing.T) {
+	ctx := context.Background()
+	issuer, sign := startOIDC(t)
+	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
+	require.NoError(t, err)
+	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+
+	// Bool true.
+	tok := sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s","exp":` + exp +
+		`,"email":"a@acme.com","email_verified":true}`)
+	claims, err := v.Verify(ctx, tok)
+	require.NoError(t, err)
+	require.NotNil(t, claims.EmailVerified)
+	require.True(t, *claims.EmailVerified)
+
+	// String "false" (some IdPs stringify booleans).
+	tok = sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s","exp":` + exp +
+		`,"email":"a@acme.com","email_verified":"false"}`)
+	claims, err = v.Verify(ctx, tok)
+	require.NoError(t, err)
+	require.NotNil(t, claims.EmailVerified)
+	require.False(t, *claims.EmailVerified)
+
+	// Absent → nil.
+	tok = sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s","exp":` + exp +
+		`,"email":"a@acme.com"}`)
+	claims, err = v.Verify(ctx, tok)
+	require.NoError(t, err)
+	require.Nil(t, claims.EmailVerified)
 }

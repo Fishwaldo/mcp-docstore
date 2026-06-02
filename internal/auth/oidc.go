@@ -14,9 +14,10 @@ import (
 
 // OIDCVerifier validates tokens against an OIDC provider discovered at the issuer URL.
 type OIDCVerifier struct {
-	verifier    *oidc.IDTokenVerifier
-	emailClaim  string
-	groupsClaim string
+	verifier            *oidc.IDTokenVerifier
+	emailClaim          string
+	groupsClaim         string
+	emailVerifiedPolicy string
 }
 
 // NewOIDCVerifier discovers an OIDC provider and builds a verifier that requires the
@@ -25,7 +26,7 @@ type OIDCVerifier struct {
 // discovery runs against issuer (issuer + /.well-known/openid-configuration); when set,
 // the provider metadata is fetched from discoveryURL instead, for providers that publish
 // it at an off-spec path (e.g. RFC 8414 /.well-known/oauth-authorization-server).
-func NewOIDCVerifier(ctx context.Context, issuer, discoveryURL, audience, emailClaim, groupsClaim string) (*OIDCVerifier, error) {
+func NewOIDCVerifier(ctx context.Context, issuer, discoveryURL, audience, emailClaim, groupsClaim, emailVerifiedPolicy string) (*OIDCVerifier, error) {
 	// Fail fast on an empty audience: with ClientID="" and SkipClientIDCheck=false the
 	// aud check would error on every Verify at runtime instead of here at construction.
 	if audience == "" {
@@ -47,9 +48,10 @@ func NewOIDCVerifier(ctx context.Context, issuer, discoveryURL, audience, emailC
 		SupportedSigningAlgs: []string{oidc.RS256, oidc.ES256, oidc.PS256, oidc.EdDSA},
 	}
 	return &OIDCVerifier{
-		verifier:    provider.Verifier(cfg),
-		emailClaim:  emailClaim,
-		groupsClaim: groupsClaim,
+		verifier:            provider.Verifier(cfg),
+		emailClaim:          emailClaim,
+		groupsClaim:         groupsClaim,
+		emailVerifiedPolicy: emailVerifiedPolicy,
 	}, nil
 }
 
@@ -93,11 +95,32 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (*Claims, er
 	}
 	email, _ := raw[v.emailClaim].(string)
 	return &Claims{
-		Subject: idToken.Subject,
-		Email:   email,
-		Groups:  toStringSlice(raw[v.groupsClaim]),
-		Expiry:  idToken.Expiry,
+		Subject:       idToken.Subject,
+		Email:         email,
+		Groups:        toStringSlice(raw[v.groupsClaim]),
+		Expiry:        idToken.Expiry,
+		EmailVerified: parseEmailVerified(raw["email_verified"]),
 	}, nil
+}
+
+// parseEmailVerified coerces a JSON "email_verified" claim into *bool, tolerating both
+// a JSON boolean and a stringified "true"/"false" (some IdPs emit the latter). It returns
+// nil when the claim is absent or has an unrecognized shape, leaving the policy to decide.
+func parseEmailVerified(v any) *bool {
+	switch t := v.(type) {
+	case bool:
+		return &t
+	case string:
+		switch t {
+		case "true":
+			b := true
+			return &b
+		case "false":
+			b := false
+			return &b
+		}
+	}
+	return nil
 }
 
 // toStringSlice coerces a JSON claim value (which decodes as []any) into []string,
