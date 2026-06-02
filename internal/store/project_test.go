@@ -334,3 +334,37 @@ func TestListProjectShares(t *testing.T) {
 	require.Equal(t, "eng", shares.Groups[0].Group)
 	require.Equal(t, "write", shares.Groups[0].Permission)
 }
+
+func TestShareUsersTransactionalAppliesAllOnSuccess(t *testing.T) {
+	s := newTestStore(t)
+	ctx, owner := fixture(t, s)
+	for _, e := range []string{"u1@acme.com", "u2@acme.com"} {
+		_, err := s.UpsertUser(ctx, owner.TenantID, "sub-"+e, e, false)
+		require.NoError(t, err)
+	}
+	p, err := s.CreateProject(ctx, owner, "Doc", "", "private")
+	require.NoError(t, err)
+	res, err := s.ShareProjectUsers(ctx, owner, p.ID, []string{"u1@acme.com", "u2@acme.com"}, "read")
+	require.NoError(t, err)
+	require.Empty(t, res.Unresolved)
+	shares, err := s.ListProjectShares(ctx, owner, p.ID)
+	require.NoError(t, err)
+	require.Len(t, shares.Users, 2)
+}
+
+func TestShareUsersUnresolvedEmailDoesNotAbortOthers(t *testing.T) {
+	s := newTestStore(t)
+	ctx, owner := fixture(t, s)
+	_, err := s.UpsertUser(ctx, owner.TenantID, "sub-real", "real@acme.com", false)
+	require.NoError(t, err)
+	p, err := s.CreateProject(ctx, owner, "Doc", "", "private")
+	require.NoError(t, err)
+	// "ghost@acme.com" matches no user: it is collected in Unresolved, the others commit.
+	res, err := s.ShareProjectUsers(ctx, owner, p.ID, []string{"ghost@acme.com", "real@acme.com"}, "read")
+	require.NoError(t, err)
+	require.Equal(t, []string{"ghost@acme.com"}, res.Unresolved)
+	shares, err := s.ListProjectShares(ctx, owner, p.ID)
+	require.NoError(t, err)
+	require.Len(t, shares.Users, 1)
+	require.Equal(t, "real@acme.com", shares.Users[0].Email)
+}

@@ -277,21 +277,27 @@ func (s *Store) ShareProjectUsers(ctx context.Context, id Identity, projectID uu
 	if err != nil {
 		return nil, err
 	}
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	res := &ShareResult{}
 	for _, email := range emails {
 		email = strings.ToLower(strings.TrimSpace(email))
-		u, uerr := s.client.User.Query().
+		u, uerr := tx.User.Query().
 			Where(user.EmailEQ(email), user.HasTenantWith(tenant.IDEQ(id.TenantID))).
 			Only(ctx)
 		if ent.IsNotFound(uerr) {
-			res.Unresolved = append(res.Unresolved, email)
+			res.Unresolved = append(res.Unresolved, email) // not a failure; don't abort
 			continue
 		}
 		if uerr != nil {
 			return nil, uerr
 		}
 		// Upsert the share: update permission if it already exists.
-		existing, qerr := s.client.ProjectShare.Query().
+		existing, qerr := tx.ProjectShare.Query().
 			Where(projectshare.HasProjectWith(project.IDEQ(p.ID)), projectshare.HasUserWith(user.IDEQ(u.ID))).
 			Only(ctx)
 		switch {
@@ -300,7 +306,7 @@ func (s *Store) ShareProjectUsers(ctx context.Context, id Identity, projectID uu
 				return nil, uperr
 			}
 		case ent.IsNotFound(qerr):
-			if _, cerr := s.client.ProjectShare.Create().
+			if _, cerr := tx.ProjectShare.Create().
 				SetProjectID(p.ID).SetUserID(u.ID).SetCreatedByID(id.UserID).
 				SetPermission(projectshare.Permission(permission)).Save(ctx); cerr != nil {
 				return nil, cerr
@@ -308,6 +314,9 @@ func (s *Store) ShareProjectUsers(ctx context.Context, id Identity, projectID uu
 		default:
 			return nil, qerr
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return res, nil
 }
@@ -322,11 +331,17 @@ func (s *Store) ShareProjectGroups(ctx context.Context, id Identity, projectID u
 	if err != nil {
 		return nil, err
 	}
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	for _, g := range groups {
 		if g == "" {
 			continue
 		}
-		existing, qerr := s.client.ProjectGroupShare.Query().
+		existing, qerr := tx.ProjectGroupShare.Query().
 			Where(projectgroupshare.HasProjectWith(project.IDEQ(p.ID)), projectgroupshare.GroupNameEQ(g)).
 			Only(ctx)
 		switch {
@@ -335,7 +350,7 @@ func (s *Store) ShareProjectGroups(ctx context.Context, id Identity, projectID u
 				return nil, uperr
 			}
 		case ent.IsNotFound(qerr):
-			if _, cerr := s.client.ProjectGroupShare.Create().
+			if _, cerr := tx.ProjectGroupShare.Create().
 				SetProjectID(p.ID).SetGroupName(g).SetCreatedByID(id.UserID).
 				SetPermission(projectgroupshare.Permission(permission)).Save(ctx); cerr != nil {
 				return nil, cerr
@@ -343,6 +358,9 @@ func (s *Store) ShareProjectGroups(ctx context.Context, id Identity, projectID u
 		default:
 			return nil, qerr
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return &ShareResult{}, nil
 }
@@ -399,11 +417,17 @@ func (s *Store) UnshareProjectUsers(ctx context.Context, id Identity, projectID 
 	if err != nil {
 		return err
 	}
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	for _, email := range emails {
 		// Tenant-scoped: email is not globally unique, so resolve only within the
 		// caller's tenant (mirrors ShareProjectUsers; prevents cross-tenant matches).
 		email = strings.ToLower(strings.TrimSpace(email))
-		u, uerr := s.client.User.Query().
+		u, uerr := tx.User.Query().
 			Where(user.EmailEQ(email), user.HasTenantWith(tenant.IDEQ(id.TenantID))).
 			Only(ctx)
 		if ent.IsNotFound(uerr) {
@@ -412,13 +436,13 @@ func (s *Store) UnshareProjectUsers(ctx context.Context, id Identity, projectID 
 		if uerr != nil {
 			return uerr
 		}
-		if _, derr := s.client.ProjectShare.Delete().
+		if _, derr := tx.ProjectShare.Delete().
 			Where(projectshare.HasProjectWith(project.IDEQ(p.ID)), projectshare.HasUserWith(user.IDEQ(u.ID))).
 			Exec(ctx); derr != nil {
 			return derr
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // UnshareProjectGroups removes group shares by name (owner/admin only).
@@ -428,15 +452,21 @@ func (s *Store) UnshareProjectGroups(ctx context.Context, id Identity, projectID
 	if err != nil {
 		return err
 	}
+	tx, err := s.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	for _, g := range groups {
 		if g == "" {
 			continue
 		}
-		if _, derr := s.client.ProjectGroupShare.Delete().
+		if _, derr := tx.ProjectGroupShare.Delete().
 			Where(projectgroupshare.HasProjectWith(project.IDEQ(p.ID)), projectgroupshare.GroupNameEQ(g)).
 			Exec(ctx); derr != nil {
 			return derr
 		}
 	}
-	return nil
+	return tx.Commit()
 }
