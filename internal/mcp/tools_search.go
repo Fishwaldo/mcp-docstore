@@ -37,7 +37,7 @@ func (r *registrar) registerSearchTool(srv *sdk.Server) {
 				Tags:       in.Tags,
 				Limit:      in.Limit,
 			}
-			hits, err := r.svc.Search(id, q)
+			hits, err := r.svc.Search(ctx, id, q)
 			if err != nil {
 				return nil, searchDocumentsOut{}, toolErr(err)
 			}

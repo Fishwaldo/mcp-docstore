@@ -294,11 +294,51 @@ func (s *Service) ListShares(ctx context.Context, id store.Identity, projectID u
 // ---- search ----
 
 // Search runs a query, stamping the access-scope fields from identity so the agent can
-// never widen its own visibility (the tenant/user/group fields are overwritten here,
-// never taken from tool input).
-func (s *Service) Search(id store.Identity, q search.Query) ([]search.Result, error) {
+// never widen its own visibility (the tenant/user/group fields are overwritten here, never
+// taken from tool input), then reconciles every hit against the live store. A hit the
+// caller can no longer read — because the document was deleted, or its project was made
+// private / unshared after the index entry was written — is dropped from the results. When
+// the document is genuinely gone from the DB (not merely hidden from this caller), the stale
+// index entry is best-effort evicted so the index self-heals; an entry that still exists but
+// is only inaccessible to this caller is left untouched so other readers keep finding it.
+// Result order is preserved.
+func (s *Service) Search(ctx context.Context, id store.Identity, q search.Query) ([]search.Result, error) {
 	q.TenantID = id.TenantID.String()
 	q.UserID = id.UserID.String()
 	q.Groups = id.Groups
-	return s.index.Search(q)
+	hits, err := s.index.Search(q)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]search.Result, 0, len(hits))
+	for _, h := range hits {
+		docID, perr := uuid.Parse(h.DocumentID)
+		if perr != nil {
+			s.log.Error("search reconcile: unparseable hit id", "id", h.DocumentID, "err", perr)
+			continue
+		}
+		d, gerr := s.store.GetDocument(ctx, id, docID)
+		switch {
+		case gerr == nil:
+			// Refresh display fields from the live doc so a stale-but-accessible entry
+			// can't show outdated title/overview.
+			h.Title = d.Title
+			h.Overview = d.Overview
+			out = append(out, h)
+		case errors.Is(gerr, store.ErrNotFound):
+			// GetDocument returns ErrNotFound both for a deleted document and for one this
+			// caller may no longer read (existence is hidden). Either way the hit is dropped
+			// for this caller. Only evict from the index when the row is *truly* gone — a
+			// tenant-agnostic existence probe distinguishes the two, so we never strip a
+			// live doc that other readers can still see.
+			if _, ierr := s.store.DocumentForIndex(ctx, docID); errors.Is(ierr, store.ErrNotFound) {
+				s.syncIndex("reconcile-remove", docID, func() error { return s.index.Remove(docID) })
+			} else if ierr != nil {
+				s.log.Error("search reconcile: existence probe failed", "id", h.DocumentID, "err", ierr)
+			}
+		default:
+			s.log.Error("search reconcile: live lookup failed", "id", h.DocumentID, "err", gerr)
+		}
+	}
+	return out, nil
 }

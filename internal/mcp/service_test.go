@@ -43,7 +43,7 @@ func TestCreateDocumentIndexed(t *testing.T) {
 	ctx := context.Background()
 	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Overview: "ov", Body: "hello world", Tags: []string{"x"}})
 	require.NoError(t, err)
-	res, err := svc.Search(id, search.Query{Text: "hello"})
+	res, err := svc.Search(ctx, id, search.Query{Text: "hello"})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 	require.Equal(t, d.ID.String(), res[0].DocumentID)
@@ -58,7 +58,7 @@ func TestEditSectionReindexes(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, got.Body, "new content")
 	require.NotContains(t, got.Body, "old")
-	res, err := svc.Search(id, search.Query{Text: "new"})
+	res, err := svc.Search(ctx, id, search.Query{Text: "new"})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 }
@@ -94,7 +94,7 @@ func TestDeleteDocumentEvictsFromIndex(t *testing.T) {
 	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Body: "hello"})
 	require.NoError(t, err)
 	require.NoError(t, svc.DeleteDocument(ctx, id, d.ID))
-	res, err := svc.Search(id, search.Query{Text: "hello"})
+	res, err := svc.Search(ctx, id, search.Query{Text: "hello"})
 	require.NoError(t, err)
 	require.Empty(t, res)
 }
@@ -119,12 +119,12 @@ func TestArchiveProjectHidesFromSearch(t *testing.T) {
 	_, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Body: "hello"})
 	require.NoError(t, err)
 	require.NoError(t, svc.ArchiveProject(ctx, id, pid))
-	res, err := svc.Search(id, search.Query{Text: "hello"})
+	res, err := svc.Search(ctx, id, search.Query{Text: "hello"})
 	require.NoError(t, err)
 	require.Empty(t, res)
 	// unarchive restores visibility
 	require.NoError(t, svc.UnarchiveProject(ctx, id, pid))
-	res, err = svc.Search(id, search.Query{Text: "hello"})
+	res, err = svc.Search(ctx, id, search.Query{Text: "hello"})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 }
@@ -135,7 +135,7 @@ func TestDeleteProjectEvictsDocsFromIndex(t *testing.T) {
 	_, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Body: "hello"})
 	require.NoError(t, err)
 	require.NoError(t, svc.DeleteProject(ctx, id, pid))
-	res, err := svc.Search(id, search.Query{Text: "hello"})
+	res, err := svc.Search(ctx, id, search.Query{Text: "hello"})
 	require.NoError(t, err)
 	require.Empty(t, res)
 }
@@ -150,14 +150,14 @@ func TestShareUsersReindexesSoShareeCanSearch(t *testing.T) {
 	require.NoError(t, err)
 	bob := store.Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
 	// before sharing, bob can't find it
-	res, err := svc.Search(bob, search.Query{Text: "secret"})
+	res, err := svc.Search(ctx, bob, search.Query{Text: "secret"})
 	require.NoError(t, err)
 	require.Empty(t, res)
 	// share read with bob -> reindex -> now findable
 	sr, err := svc.ShareUsers(ctx, owner, pid, []string{"bob@acme.com"}, "read")
 	require.NoError(t, err)
 	require.Empty(t, sr.Unresolved)
-	res, err = svc.Search(bob, search.Query{Text: "secret"})
+	res, err = svc.Search(ctx, bob, search.Query{Text: "secret"})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 }
@@ -182,6 +182,50 @@ func TestAppendRetriesOnConflict(t *testing.T) {
 	require.Contains(t, got.Body, "concurrent")
 	require.Contains(t, got.Body, "appended")
 	require.Equal(t, 3, got.Version)
+}
+
+func TestSearchReconcilesDeletedStaleHit(t *testing.T) {
+	svc, st, id, pid := newSvc(t)
+	ctx := context.Background()
+	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Body: "stale hello"})
+	require.NoError(t, err)
+	// Delete from the STORE only, so the index keeps the now-orphaned entry.
+	require.NoError(t, st.DeleteDocument(ctx, id, d.ID))
+	// Search must not return the deleted doc.
+	res, err := svc.Search(ctx, id, search.Query{Text: "stale"})
+	require.NoError(t, err)
+	require.Empty(t, res)
+	// Reconcile healed the index: a second search confirms the entry is gone (no error,
+	// still empty) — the stale doc was best-effort removed during the first search.
+	res, err = svc.Search(ctx, id, search.Query{Text: "stale"})
+	require.NoError(t, err)
+	require.Empty(t, res)
+}
+
+func TestSearchReconcilesNowInaccessibleHit(t *testing.T) {
+	svc, st, owner, pid := newSvc(t)
+	ctx := context.Background()
+	_, err := svc.CreateDocument(ctx, owner, pid, store.NewDocument{Title: "T", Body: "private secret"})
+	require.NoError(t, err)
+	// Share with bob and reindex so the index says bob can read it.
+	bobEnt, err := st.UpsertUser(ctx, owner.TenantID, "sub-bob", "bob@acme.com", false)
+	require.NoError(t, err)
+	bob := store.Identity{TenantID: owner.TenantID, UserID: bobEnt.ID}
+	_, err = svc.ShareUsers(ctx, owner, pid, []string{"bob@acme.com"}, "read")
+	require.NoError(t, err)
+	res, err := svc.Search(ctx, bob, search.Query{Text: "secret"})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	// Revoke at the STORE level only (bypass Service so the index is NOT re-stamped).
+	require.NoError(t, st.UnshareProjectUsers(ctx, owner, pid, []string{"bob@acme.com"}))
+	// Reconcile-on-read: GetDocument now returns ErrNotFound for bob, so the hit is dropped.
+	res, err = svc.Search(ctx, bob, search.Query{Text: "secret"})
+	require.NoError(t, err)
+	require.Empty(t, res)
+	// And the owner can still find it (its index entry is untouched).
+	res, err = svc.Search(ctx, owner, search.Query{Text: "secret"})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
 }
 
 func TestCreateDocumentIndexSyncIsNonFatal(t *testing.T) {
