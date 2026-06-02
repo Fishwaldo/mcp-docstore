@@ -91,6 +91,43 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
+func TestRunGracefulShutdown(t *testing.T) {
+	issuer := startOIDC(t)
+	addr := freeAddr(t)
+	cfgPath := writeConfig(t, baseConfig(t, issuer, addr))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+
+	// Poll readiness deterministically — no arbitrary sleeps.
+	metaURL := "http://" + addr + "/.well-known/oauth-protected-resource"
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		resp, err := http.Get(metaURL)
+		if err == nil {
+			require.NoError(t, resp.Body.Close())
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never came up: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	cancel() // simulate SIGTERM/SIGINT delivered to the signal context
+	select {
+	case err := <-runErr:
+		require.NoError(t, err, "Run must return nil on graceful shutdown")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
 func TestServeMetadataAndUnauthorized(t *testing.T) {
 	issuer := startOIDC(t)
 	addr := freeAddr(t)
