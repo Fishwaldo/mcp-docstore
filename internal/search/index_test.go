@@ -4,6 +4,7 @@
 package search
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -135,21 +136,27 @@ func TestSearchNoTextMatchesAllAccessible(t *testing.T) {
 
 func TestSearchClampsLimit(t *testing.T) {
 	idx := openTemp(t)
-	seed(t, idx)
 
-	// A pathological limit must not blow past the server-side cap.
-	res, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Groups: []string{"eng"}, Limit: 1_000_000_000})
-	require.NoError(t, err)
-	require.LessOrEqual(t, len(res), 100, "limit must be clamped to maxLimit")
-	// All four accessible docs still returned (clamp is an upper bound, not a truncation of valid hits).
-	got := ids(res)
-	require.True(t, got["own"] && got["org"] && got["ushare"] && got["gshare"])
+	// Index more than maxLimit (100) documents, all owned by the same identity in the
+	// same tenant (so the caller can read every one) and all sharing the term "alpha".
+	const total = 150
+	for i := 0; i < total; i++ {
+		require.NoError(t, idx.Put(Doc{
+			ID: fmt.Sprintf("d%03d", i), TenantID: "t1", ProjectID: "p1", OwnerID: "u1",
+			Visibility: "private", Title: "doc", Body: "alpha match",
+		}))
+	}
 
-	// Limit: 0 falls through to the default (20) and still returns the accessible set.
-	res0, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Groups: []string{"eng"}, Limit: 0})
+	// A pathological limit must be clamped to maxLimit (100), even though 150 hits match.
+	res, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Limit: 1_000_000_000})
 	require.NoError(t, err)
-	got0 := ids(res0)
-	require.True(t, got0["own"] && got0["org"] && got0["ushare"] && got0["gshare"])
+	require.Equal(t, 100, len(res), "limit must be clamped to maxLimit")
+
+	// Limit: 0 falls through to the default (20): returns results, never more than the default.
+	res0, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Limit: 0})
+	require.NoError(t, err)
+	require.NotEmpty(t, res0)
+	require.LessOrEqual(t, len(res0), 20, "zero limit must use the default cap")
 }
 
 // The access disjunction matches a document on identity fields (owner_id,
