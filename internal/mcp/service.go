@@ -33,6 +33,16 @@ func NewService(st *store.Store, idx *index.Service, log *slog.Logger) *Service 
 	return &Service{store: st, index: idx, log: log}
 }
 
+// syncIndex runs an index-sync op after a store mutation has already committed. The DB
+// write is the source of truth; a search-index failure here is logged and swallowed
+// (returning it would misrepresent state — the row exists but the caller would be told
+// the operation failed). A reconcile-on-read pass in Search heals any drift this leaves.
+func (s *Service) syncIndex(op string, id fmt.Stringer, fn func() error) {
+	if err := fn(); err != nil {
+		s.log.Error("index sync failed", "op", op, "id", id.String(), "err", err)
+	}
+}
+
 // ---- documents: reads ----
 
 func (s *Service) GetDocument(ctx context.Context, id store.Identity, docID uuid.UUID) (*ent.Document, error) {
@@ -96,9 +106,7 @@ func (s *Service) CreateDocument(ctx context.Context, id store.Identity, project
 	if err != nil {
 		return nil, err
 	}
-	if err := s.index.Reindex(ctx, d.ID); err != nil {
-		return nil, fmt.Errorf("index after create: %w", err)
-	}
+	s.syncIndex("reindex", d.ID, func() error { return s.index.Reindex(ctx, d.ID) })
 	return d, nil
 }
 
@@ -109,9 +117,7 @@ func (s *Service) EditReplace(ctx context.Context, id store.Identity, docID uuid
 	if err != nil {
 		return nil, err
 	}
-	if err := s.index.Reindex(ctx, d.ID); err != nil {
-		return nil, fmt.Errorf("index after edit: %w", err)
-	}
+	s.syncIndex("reindex", d.ID, func() error { return s.index.Reindex(ctx, d.ID) })
 	return d, nil
 }
 
@@ -161,9 +167,7 @@ func (s *Service) RestoreSnapshot(ctx context.Context, id store.Identity, docID 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.index.Reindex(ctx, d.ID); err != nil {
-		return nil, fmt.Errorf("index after restore: %w", err)
-	}
+	s.syncIndex("reindex", d.ID, func() error { return s.index.Reindex(ctx, d.ID) })
 	return d, nil
 }
 
@@ -171,7 +175,8 @@ func (s *Service) DeleteDocument(ctx context.Context, id store.Identity, docID u
 	if err := s.store.DeleteDocument(ctx, id, docID); err != nil {
 		return err
 	}
-	return s.index.Remove(docID)
+	s.syncIndex("remove", docID, func() error { return s.index.Remove(docID) })
+	return nil
 }
 
 // ---- projects ----
@@ -197,9 +202,7 @@ func (s *Service) UpdateProject(ctx context.Context, id store.Identity, projectI
 	if err != nil {
 		return nil, err
 	}
-	if err := s.index.ReindexProject(ctx, projectID); err != nil {
-		return nil, fmt.Errorf("index after update project: %w", err)
-	}
+	s.syncIndex("reindex-project", projectID, func() error { return s.index.ReindexProject(ctx, projectID) })
 	return p, nil
 }
 
@@ -207,14 +210,16 @@ func (s *Service) ArchiveProject(ctx context.Context, id store.Identity, project
 	if err := s.store.ArchiveProject(ctx, id, projectID); err != nil {
 		return err
 	}
-	return s.index.ReindexProject(ctx, projectID)
+	s.syncIndex("reindex-project", projectID, func() error { return s.index.ReindexProject(ctx, projectID) })
+	return nil
 }
 
 func (s *Service) UnarchiveProject(ctx context.Context, id store.Identity, projectID uuid.UUID) error {
 	if err := s.store.UnarchiveProject(ctx, id, projectID); err != nil {
 		return err
 	}
-	return s.index.ReindexProject(ctx, projectID)
+	s.syncIndex("reindex-project", projectID, func() error { return s.index.ReindexProject(ctx, projectID) })
+	return nil
 }
 
 func (s *Service) DeleteProject(ctx context.Context, id store.Identity, projectID uuid.UUID) error {
@@ -222,10 +227,11 @@ func (s *Service) DeleteProject(ctx context.Context, id store.Identity, projectI
 	if err != nil {
 		return err
 	}
+	// Per-doc: log and continue rather than aborting, so one index failure can't strand
+	// the remaining evictions. Reconcile-on-read drops any that survive in the index.
 	for _, docID := range removed {
-		if err := s.index.Remove(docID); err != nil {
-			return fmt.Errorf("index remove after delete project: %w", err)
-		}
+		docID := docID
+		s.syncIndex("remove", docID, func() error { return s.index.Remove(docID) })
 	}
 	return nil
 }
@@ -237,9 +243,7 @@ func (s *Service) ShareUsers(ctx context.Context, id store.Identity, projectID u
 	if err != nil {
 		return nil, err
 	}
-	if err := s.index.ReindexProject(ctx, projectID); err != nil {
-		return nil, fmt.Errorf("index after share users: %w", err)
-	}
+	s.syncIndex("reindex-project", projectID, func() error { return s.index.ReindexProject(ctx, projectID) })
 	return res, nil
 }
 
@@ -248,9 +252,7 @@ func (s *Service) ShareGroups(ctx context.Context, id store.Identity, projectID 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.index.ReindexProject(ctx, projectID); err != nil {
-		return nil, fmt.Errorf("index after share groups: %w", err)
-	}
+	s.syncIndex("reindex-project", projectID, func() error { return s.index.ReindexProject(ctx, projectID) })
 	return res, nil
 }
 
@@ -258,14 +260,16 @@ func (s *Service) UnshareUsers(ctx context.Context, id store.Identity, projectID
 	if err := s.store.UnshareProjectUsers(ctx, id, projectID, emails); err != nil {
 		return err
 	}
-	return s.index.ReindexProject(ctx, projectID)
+	s.syncIndex("reindex-project", projectID, func() error { return s.index.ReindexProject(ctx, projectID) })
+	return nil
 }
 
 func (s *Service) UnshareGroups(ctx context.Context, id store.Identity, projectID uuid.UUID, groups []string) error {
 	if err := s.store.UnshareProjectGroups(ctx, id, projectID, groups); err != nil {
 		return err
 	}
-	return s.index.ReindexProject(ctx, projectID)
+	s.syncIndex("reindex-project", projectID, func() error { return s.index.ReindexProject(ctx, projectID) })
+	return nil
 }
 
 func (s *Service) ListShares(ctx context.Context, id store.Identity, projectID uuid.UUID) (*store.ProjectShares, error) {

@@ -162,6 +162,21 @@ func TestShareUsersReindexesSoShareeCanSearch(t *testing.T) {
 	require.Len(t, res, 1)
 }
 
+func TestCreateDocumentIndexSyncIsNonFatal(t *testing.T) {
+	svc, st, id, pid := newSvc(t)
+	ctx := context.Background()
+	// Break the index so any Put/Delete fails, simulating a search backend outage.
+	require.NoError(t, svc.index.CloseForTest())
+	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Body: "hello"})
+	// The store write committed, so the call must succeed despite the index error.
+	require.NoError(t, err)
+	require.NotNil(t, d)
+	// The document is really in the store.
+	got, err := st.GetDocument(ctx, id, d.ID)
+	require.NoError(t, err)
+	require.Equal(t, d.ID, got.ID)
+}
+
 func TestListSharesRoundTrip(t *testing.T) {
 	svc, st, owner, pid := newSvc(t)
 	ctx := context.Background()

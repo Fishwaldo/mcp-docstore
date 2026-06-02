@@ -62,6 +62,10 @@ func (s *Service) Search(q search.Query) ([]search.Result, error) {
 	return s.index.Search(q)
 }
 
+// CloseForTest closes the underlying search index. Test-only: used to simulate a
+// search-backend outage so the non-fatal index-sync behaviour can be exercised.
+func (s *Service) CloseForTest() error { return s.index.Close() }
+
 // Reindex (re)indexes a single document by ID.
 func (s *Service) Reindex(ctx context.Context, documentID uuid.UUID) error {
 	d, err := s.store.DocumentForIndex(ctx, documentID)

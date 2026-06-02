@@ -14,8 +14,9 @@ import (
 
 // Index wraps a persistent Bleve index.
 type Index struct {
-	idx  bleve.Index
-	path string
+	idx    bleve.Index
+	path   string
+	closed bool
 }
 
 // Open opens the index at path, creating it (with our mapping) if it does not exist.
@@ -31,7 +32,15 @@ func Open(path string) (*Index, error) {
 	return &Index{idx: idx, path: path}, nil
 }
 
-func (i *Index) Close() error { return i.idx.Close() }
+// Close closes the underlying Bleve index. It is idempotent: a second call is a no-op,
+// since Bleve's scorch backend panics on a double close.
+func (i *Index) Close() error {
+	if i.closed {
+		return nil
+	}
+	i.closed = true
+	return i.idx.Close()
+}
 
 // Reset drops the entire index and recreates it empty with the current mapping. It
 // clears any stale entries (e.g. documents deleted from the DB, or leftovers from an
