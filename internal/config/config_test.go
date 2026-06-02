@@ -168,6 +168,42 @@ oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 	}
 }
 
+func TestValidateRejectsNonPositiveMaxRequestBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"zero", "max_request_bytes: 0\n"},
+		{"negative", "max_request_bytes: -1\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`+tc.val)
+			_, err := Load(path)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "max_request_bytes")
+		})
+	}
+}
+
+func TestMaxRequestBytesPositiveOK(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+max_request_bytes: 1048576
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, int64(1048576), cfg.MaxRequestBytes)
+}
+
 func TestSessionTimeoutPositiveOK(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"

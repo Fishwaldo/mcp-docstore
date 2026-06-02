@@ -138,6 +138,9 @@ func (c *Config) Validate() error {
 	if c.SessionTimeout <= 0 {
 		return fmt.Errorf("session_timeout must be positive (got %s)", c.SessionTimeout)
 	}
+	if c.MaxRequestBytes <= 0 {
+		return fmt.Errorf("max_request_bytes must be positive (got %d)", c.MaxRequestBytes)
+	}
 	seenKey := map[string]bool{}
 	seenDomain := map[string]string{}
 	seenEmail := map[string]string{}
