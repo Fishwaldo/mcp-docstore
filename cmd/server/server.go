@@ -134,7 +134,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	}))
 	mux.Handle("/icon-512.png", servePNG(assets.Icon512PNG))
 	mux.Handle("/icon-96.png", servePNG(assets.Icon96PNG))
-	mux.Handle("/", logRequests(logger, bearer(streamable)))
+	mux.Handle("/", logRequests(logger, cfg.Logging.ClientIPHeader, bearer(streamable)))
 
 	httpSrv := &http.Server{Addr: cfg.ListenAddr, Handler: mux}
 	go func() {
@@ -159,11 +159,39 @@ func servePNG(b []byte) http.HandlerFunc {
 	}
 }
 
-// logRequests is minimal slog request logging. It never logs the Authorization header.
-func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
+// statusRecorder wraps http.ResponseWriter to capture the response status code. It exposes
+// Unwrap so http.ResponseController (used by the SDK's Streamable HTTP handler to Flush SSE
+// streams) reaches the underlying writer.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// logRequests logs one transport event per HTTP request: method, path, status, client IP,
+// and latency. It never logs the Authorization header. Successful requests log at DEBUG; a
+// 4xx/5xx (including pre-auth 401s the MCP layer never sees) logs at WARN.
+func logRequests(logger *slog.Logger, ipHeader string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.Info("request", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start).String())
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		level := slog.LevelDebug
+		if rec.status >= 400 {
+			level = slog.LevelWarn
+		}
+		logger.LogAttrs(r.Context(), level, "http_request",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", rec.status),
+			slog.String("client_ip", auth.ClientIP(r, ipHeader)),
+			slog.Int64("dur_ms", time.Since(start).Milliseconds()),
+		)
 	})
 }
