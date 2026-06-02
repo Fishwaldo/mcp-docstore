@@ -137,6 +137,22 @@ func (s *Service) EditReplace(ctx context.Context, id store.Identity, docID uuid
 	return d, nil
 }
 
+// editLoadedAndIndex runs an optimistic edit on an already-loaded document, then
+// re-indexes it. It is the load-once counterpart of EditReplace for callers
+// (section edit, delete-section, append) that have already fetched the document
+// to compute the new body — avoiding a second store load per edit. The reindex is
+// routed through syncIndex (non-fatal, logged + swallowed) to match the convention
+// EditReplace and every other mutation method use, so the section/append paths
+// don't reintroduce a fatal post-commit index error.
+func (s *Service) editLoadedAndIndex(ctx context.Context, id store.Identity, d *ent.Document, in store.EditDocument) (*ent.Document, error) {
+	updated, err := s.store.EditLoaded(ctx, id, d, in)
+	if err != nil {
+		return nil, err
+	}
+	s.syncIndex("reindex", updated.ID, func() error { return s.index.Reindex(ctx, updated.ID) })
+	return updated, nil
+}
+
 // EditSection replaces the body section under heading (optimistic via base).
 func (s *Service) EditSection(ctx context.Context, id store.Identity, docID uuid.UUID, base int, heading, content, comment string) (*ent.Document, error) {
 	d, err := s.store.GetDocument(ctx, id, docID)
@@ -147,7 +163,7 @@ func (s *Service) EditSection(ctx context.Context, id store.Identity, docID uuid
 	if err != nil {
 		return nil, err
 	}
-	return s.EditReplace(ctx, id, docID, base, nil, &newBody, nil, comment)
+	return s.editLoadedAndIndex(ctx, id, d, store.EditDocument{BaseVersion: base, Body: &newBody, Comment: comment})
 }
 
 // AppendDocument appends text to the end of the body. Non-clobbering: it does NOT take a
@@ -189,7 +205,7 @@ func (s *Service) DeleteSection(ctx context.Context, id store.Identity, docID uu
 	if err != nil {
 		return nil, err
 	}
-	return s.EditReplace(ctx, id, docID, base, nil, &newBody, nil, comment)
+	return s.editLoadedAndIndex(ctx, id, d, store.EditDocument{BaseVersion: base, Body: &newBody, Comment: comment})
 }
 
 func (s *Service) RestoreSnapshot(ctx context.Context, id store.Identity, docID uuid.UUID, version, base int, comment string) (*ent.Document, error) {

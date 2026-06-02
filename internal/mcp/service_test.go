@@ -63,6 +63,19 @@ func TestEditSectionReindexes(t *testing.T) {
 	require.Len(t, res, 1)
 }
 
+func TestEditSectionStaleBaseConflicts(t *testing.T) {
+	svc, _, id, pid := newSvc(t)
+	ctx := context.Background()
+	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Body: "# A\nold"})
+	require.NoError(t, err)
+	// Bump the version once so the caller's base (d.Version) is now stale.
+	_, err = svc.EditSection(ctx, id, d.ID, d.Version, "A", "first", "e1")
+	require.NoError(t, err)
+	// Re-using the original (now stale) base must conflict.
+	_, err = svc.EditSection(ctx, id, d.ID, d.Version, "A", "second", "e2")
+	require.ErrorIs(t, err, store.ErrConflict)
+}
+
 func TestAppendDocumentSnapshotsAndReindexes(t *testing.T) {
 	svc, _, id, pid := newSvc(t)
 	ctx := context.Background()
