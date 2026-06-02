@@ -84,3 +84,19 @@ func TestUpsertUserReconcilesAdminRole(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, user.RoleMember, u.Role)
 }
+
+// The concurrent-first-login branch in UpsertUser (User.Create hits the unique
+// external_subject constraint, then re-queries and reconciles the existing row) cannot be
+// forced deterministically in a single-connection in-memory test: it requires two
+// simultaneous Creates racing on the same subject. Its correctness rests on the unique
+// index on external_subject plus the shared reconciliation path exercised by
+// TestUpsertTenantAndUser and TestUpsertUserReconcilesAdminRole, and is verified by review.
+func TestUpsertUserRejectsEmptySubject(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	ten, err := s.EnsureTenant(ctx, "acme", "Acme")
+	require.NoError(t, err)
+
+	_, err = s.UpsertUser(ctx, ten.ID, "", "alice@acme.com", false)
+	require.ErrorIs(t, err, ErrInvalid)
+}
