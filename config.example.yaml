@@ -16,6 +16,7 @@ oidc:
   audience: "mcp-docstore"                # the "aud" this resource server requires
   email_claim: "email"
   groups_claim: "groups"
+  email_verified_policy: "require"        # require | if_present | off — gate on the email_verified claim (default require)
 
 tenants:
   - key: acme

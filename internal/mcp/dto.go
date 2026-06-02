@@ -13,7 +13,7 @@ type projectOut struct {
 	ID          string `json:"id" jsonschema:"project id (UUID); pass as project_id to other tools"`
 	Name        string `json:"name" jsonschema:"project name"`
 	Description string `json:"description" jsonschema:"project description"`
-	Visibility  string `json:"visibility" jsonschema:"org (whole tenant) or private"`
+	Visibility  string `json:"visibility" jsonschema:"org (every tenant member can read, edit, and delete its documents) or private (owner plus explicit shares)"`
 	Archived    bool   `json:"archived" jsonschema:"true if archived (hidden from lists and search)"`
 	Access      string `json:"access,omitempty" jsonschema:"the caller's effective access to this project: none, read, or write"`
 }

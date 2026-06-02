@@ -21,7 +21,7 @@ type listProjectsOut struct {
 type createProjectIn struct {
 	Name        string `json:"name" jsonschema:"project name"`
 	Description string `json:"description,omitempty" jsonschema:"optional description"`
-	Visibility  string `json:"visibility,omitempty" jsonschema:"org or private (default private)"`
+	Visibility  string `json:"visibility,omitempty" jsonschema:"org (every tenant member can read, edit, and delete) or private (default; owner plus explicit shares)"`
 }
 type projectIDIn struct {
 	ProjectID string `json:"project_id" jsonschema:"the project id"`
@@ -30,7 +30,7 @@ type updateProjectIn struct {
 	ProjectID   string  `json:"project_id" jsonschema:"the project id"`
 	Name        *string `json:"name,omitempty" jsonschema:"new name"`
 	Description *string `json:"description,omitempty" jsonschema:"new description"`
-	Visibility  *string `json:"visibility,omitempty" jsonschema:"new visibility: org or private"`
+	Visibility  *string `json:"visibility,omitempty" jsonschema:"new visibility: org (every tenant member can read, edit, and delete) or private (owner plus explicit shares)"`
 }
 type archivedOut struct {
 	Archived bool `json:"archived" jsonschema:"the project's archived state after the call"`
@@ -54,7 +54,7 @@ func (r *registrar) registerProjectTools(srv *sdk.Server) {
 			return nil, out, nil
 		})
 
-	sdk.AddTool(srv, &sdk.Tool{Name: "create_project", Description: "Create a project. Visibility org (whole tenant) or private (default).", Annotations: mutatingAnno(),
+	sdk.AddTool(srv, &sdk.Tool{Name: "create_project", Description: "Create a project. Visibility org (every tenant member can read, edit, and delete its documents) or private (default; owner plus explicit shares).", Annotations: mutatingAnno(),
 		InputSchema: inputSchema[createProjectIn](map[string][]any{"visibility": {"org", "private"}})},
 		func(ctx context.Context, req *sdk.CallToolRequest, in createProjectIn) (*sdk.CallToolResult, projectOut, error) {
 			id, err := r.ident(req)

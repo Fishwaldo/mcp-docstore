@@ -37,7 +37,7 @@ type listProjectSharesOut struct {
 }
 
 func (r *registrar) registerSharingTools(srv *sdk.Server) {
-	sdk.AddTool(srv, &sdk.Tool{Name: "share_project", Description: "Share a project with users (by email) and/or groups at read or write permission. Returns any user emails that did not match a tenant member (unresolved) so the caller can correct them.", Annotations: mutatingAnno(),
+	sdk.AddTool(srv, &sdk.Tool{Name: "share_project", Description: "Share a project with users (by email) and/or groups at read or write permission. Returns any user emails that did not match a tenant member (unresolved) so the caller can correct them. Shares on an org project have no effect — every tenant member already has read+write.", Annotations: mutatingAnno(),
 		InputSchema: inputSchema[shareProjectIn](map[string][]any{"permission": {"read", "write"}})},
 		func(ctx context.Context, req *sdk.CallToolRequest, in shareProjectIn) (*sdk.CallToolResult, shareProjectOut, error) {
 			id, err := r.ident(req)
