@@ -298,3 +298,11 @@ func TestOIDCVerifierDiscoveryTimesOut(t *testing.T) {
 	require.Error(t, err)
 	require.Less(t, time.Since(start), 5*time.Second, "discovery should be bounded by the timeout, not hang")
 }
+
+func TestToStringSlice(t *testing.T) {
+	require.Equal(t, []string{"a", "b"}, toStringSlice([]any{"a", "b"}))
+	require.Equal(t, []string{"x", "y"}, toStringSlice([]any{"x", 1, true, "y"})) // non-strings skipped
+	require.Equal(t, []string{"only"}, toStringSlice("only"))
+	require.Nil(t, toStringSlice(nil))
+	require.Nil(t, toStringSlice(42))
+}

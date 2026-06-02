@@ -160,7 +160,7 @@ func parseEmailVerified(v any) *bool {
 }
 
 // toStringSlice coerces a JSON claim value (which decodes as []any) into []string,
-// tolerating a single string or a missing/!string element.
+// tolerating a single string or a missing/non-string element.
 func toStringSlice(v any) []string {
 	switch t := v.(type) {
 	case []any:
@@ -171,8 +171,6 @@ func toStringSlice(v any) []string {
 			}
 		}
 		return out
-	case []string:
-		return t
 	case string:
 		return []string{t}
 	default:
