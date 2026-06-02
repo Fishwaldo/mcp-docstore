@@ -125,6 +125,10 @@ func (i *Index) Search(q Query) ([]Result, error) {
 	if limit <= 0 {
 		limit = 20
 	}
+	const maxLimit = 100
+	if limit > maxLimit {
+		limit = maxLimit
+	}
 	req := bleve.NewSearchRequestOptions(boolQ, limit, 0, false)
 	req.Fields = []string{"title", "overview", "project_id"}
 	// Highlight only the human-readable fields. Without this restriction Bleve also

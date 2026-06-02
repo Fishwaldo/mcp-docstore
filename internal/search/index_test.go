@@ -133,6 +133,25 @@ func TestSearchNoTextMatchesAllAccessible(t *testing.T) {
 	require.False(t, got["noaccess"] || got["archived"] || got["othertenant"])
 }
 
+func TestSearchClampsLimit(t *testing.T) {
+	idx := openTemp(t)
+	seed(t, idx)
+
+	// A pathological limit must not blow past the server-side cap.
+	res, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Groups: []string{"eng"}, Limit: 1_000_000_000})
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(res), 100, "limit must be clamped to maxLimit")
+	// All four accessible docs still returned (clamp is an upper bound, not a truncation of valid hits).
+	got := ids(res)
+	require.True(t, got["own"] && got["org"] && got["ushare"] && got["gshare"])
+
+	// Limit: 0 falls through to the default (20) and still returns the accessible set.
+	res0, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Groups: []string{"eng"}, Limit: 0})
+	require.NoError(t, err)
+	got0 := ids(res0)
+	require.True(t, got0["own"] && got0["org"] && got0["ushare"] && got0["gshare"])
+}
+
 // The access disjunction matches a document on identity fields (owner_id,
 // shared_user_ids) using the caller's own UUID. Those fields must never be
 // highlighted, or the snippet echoes the identity value instead of the text.
