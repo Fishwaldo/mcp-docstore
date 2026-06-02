@@ -10,8 +10,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"time"
 
@@ -58,6 +60,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	logger = newLogger(os.Stderr, cfg.Logging)
 
 	st, err := store.Open(cfg.Database.Driver, cfg.Database.DSN, store.WithSnapshotRetention(cfg.SnapshotRetention))
 	if err != nil {
@@ -173,6 +176,28 @@ func (s *statusRecorder) WriteHeader(code int) {
 }
 
 func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// newLogger builds the slog logger from config: level (debug|info|warn|error) and format
+// (json|text). config.Validate has already rejected invalid values, so unknown values fall
+// back to info/json defensively.
+func newLogger(w io.Writer, c config.Logging) *slog.Logger {
+	var level slog.Level
+	switch c.Level {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	if c.Format == "text" {
+		return slog.New(slog.NewTextHandler(w, opts))
+	}
+	return slog.New(slog.NewJSONHandler(w, opts))
+}
 
 // logRequests logs one transport event per HTTP request: method, path, status, client IP,
 // and latency. It never logs the Authorization header. Successful requests log at DEBUG; a
