@@ -42,6 +42,11 @@ type OIDC struct {
 	Audience     string `mapstructure:"audience"`
 	EmailClaim   string `mapstructure:"email_claim"`
 	GroupsClaim  string `mapstructure:"groups_claim"`
+	// EmailVerifiedPolicy controls how the "email_verified" claim gates a token:
+	//   "require"    — the claim must be present and true (default; most secure).
+	//   "if_present" — reject only if the claim is present and false.
+	//   "off"        — never check the claim.
+	EmailVerifiedPolicy string `mapstructure:"email_verified_policy"`
 }
 
 type TenantSpec struct {
@@ -65,6 +70,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("session_timeout", 2*time.Minute)
 	v.SetDefault("oidc.email_claim", "email")
 	v.SetDefault("oidc.groups_claim", "groups")
+	v.SetDefault("oidc.email_verified_policy", "require")
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -113,6 +119,11 @@ func (c *Config) Validate() error {
 	}
 	if c.OIDC.Audience == "" {
 		return fmt.Errorf("oidc.audience is required")
+	}
+	switch c.OIDC.EmailVerifiedPolicy {
+	case "require", "if_present", "off":
+	default:
+		return fmt.Errorf("oidc.email_verified_policy must be one of require|if_present|off, got %q", c.OIDC.EmailVerifiedPolicy)
 	}
 	if c.PublicURL == "" {
 		return fmt.Errorf("public_url is required")

@@ -73,6 +73,61 @@ tenants:
 	require.Equal(t, []string{"alice@acme.com"}, cfg.Tenants[0].Admins) // normalize() lower-cases admins
 }
 
+func TestEmailVerifiedPolicyDefaults(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "require", cfg.OIDC.EmailVerifiedPolicy) // secure default
+}
+
+func TestEmailVerifiedPolicyAcceptsKnownValues(t *testing.T) {
+	for _, v := range []string{"require", "if_present", "off"} {
+		path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+  email_verified_policy: "`+v+`"
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, v, cfg.OIDC.EmailVerifiedPolicy)
+	}
+}
+
+func TestEmailVerifiedPolicyRejectsUnknownValue(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+  email_verified_policy: "maybe"
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+	_, err := Load(path)
+	require.ErrorContains(t, err, "oidc.email_verified_policy")
+}
+
 func TestValidateRejectsDuplicateDomain(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"
