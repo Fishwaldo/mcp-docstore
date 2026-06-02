@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -134,19 +135,33 @@ func (s *Service) EditSection(ctx context.Context, id store.Identity, docID uuid
 	return s.EditReplace(ctx, id, docID, base, nil, &newBody, nil, comment)
 }
 
-// AppendDocument appends text to the end of the body. Non-clobbering: it does
-// NOT take a caller base_version; it reads the current version and uses it as the base, so
-// concurrent appends never conflict. Still produces a new version + snapshot.
+// AppendDocument appends text to the end of the body. Non-clobbering: it does NOT take a
+// caller base_version; it reads the current version and uses it as the base, so concurrent
+// appends never conflict. If another writer bumps the version between this read and the
+// write, the resulting ErrConflict is retried by re-reading the current state, up to
+// maxAppendAttempts times. Each successful append produces a new version + snapshot.
 func (s *Service) AppendDocument(ctx context.Context, id store.Identity, docID uuid.UUID, text, comment string) (*ent.Document, error) {
-	d, err := s.store.GetDocument(ctx, id, docID)
-	if err != nil {
-		return nil, err
+	const maxAppendAttempts = 5
+	var lastErr error
+	for attempt := 0; attempt < maxAppendAttempts; attempt++ {
+		d, err := s.store.GetDocument(ctx, id, docID)
+		if err != nil {
+			return nil, err
+		}
+		newBody := text
+		if d.Body != "" {
+			newBody = d.Body + "\n" + text
+		}
+		out, err := s.EditReplace(ctx, id, docID, d.Version, nil, &newBody, nil, comment)
+		if err == nil {
+			return out, nil
+		}
+		if !errors.Is(err, store.ErrConflict) {
+			return nil, err
+		}
+		lastErr = err // a concurrent writer moved the version; re-read and retry
 	}
-	newBody := text
-	if d.Body != "" {
-		newBody = d.Body + "\n" + text
-	}
-	return s.EditReplace(ctx, id, docID, d.Version, nil, &newBody, nil, comment)
+	return nil, lastErr
 }
 
 // DeleteSection removes the section under heading (optimistic via base).

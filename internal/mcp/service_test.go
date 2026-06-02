@@ -162,6 +162,28 @@ func TestShareUsersReindexesSoShareeCanSearch(t *testing.T) {
 	require.Len(t, res, 1)
 }
 
+// TestAppendRetriesOnConflict proves the append loop re-reads and lands even when the
+// version has advanced since an earlier read. We hold a stale view of the document
+// (d, version 1), bump the version out from under it via a direct store edit, then
+// append: the loop must read the *current* version internally and succeed.
+func TestAppendRetriesOnConflict(t *testing.T) {
+	svc, st, id, pid := newSvc(t)
+	ctx := context.Background()
+	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{Title: "T", Body: "first"})
+	require.NoError(t, err)
+	// A concurrent writer bumps the version (now 2) before our append runs.
+	body2 := "first\nconcurrent"
+	bumped, err := st.EditDocument(ctx, id, d.ID, store.EditDocument{BaseVersion: d.Version, Body: &body2, Comment: "concurrent"})
+	require.NoError(t, err)
+	require.Equal(t, 2, bumped.Version)
+	// Append: AppendDocument reads the current version itself, so it lands on top.
+	got, err := svc.AppendDocument(ctx, id, d.ID, "appended", "append")
+	require.NoError(t, err)
+	require.Contains(t, got.Body, "concurrent")
+	require.Contains(t, got.Body, "appended")
+	require.Equal(t, 3, got.Version)
+}
+
 func TestCreateDocumentIndexSyncIsNonFatal(t *testing.T) {
 	svc, st, id, pid := newSvc(t)
 	ctx := context.Background()
