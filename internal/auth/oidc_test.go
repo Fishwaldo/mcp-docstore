@@ -180,6 +180,19 @@ func TestOIDCVerifierRequiresAudience(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOIDCVerifierRejectsEmptySubject(t *testing.T) {
+	ctx := context.Background()
+	issuer, sign := startOIDC(t)
+	v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
+	require.NoError(t, err)
+
+	// Validly signed, correct aud, not expired, but no "sub" → must be rejected.
+	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	tok := sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","exp":` + exp + `,"email":"a@acme.com"}`)
+	_, err = v.Verify(ctx, tok)
+	require.Error(t, err)
+}
+
 func TestOIDCVerifierExtractsEmailVerified(t *testing.T) {
 	ctx := context.Background()
 	issuer, sign := startOIDC(t)

@@ -93,6 +93,9 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (*Claims, er
 	if err := idToken.Claims(&raw); err != nil {
 		return nil, fmt.Errorf("decode claims: %w", err)
 	}
+	if idToken.Subject == "" {
+		return nil, fmt.Errorf("verify token: missing subject")
+	}
 	email, _ := raw[v.emailClaim].(string)
 	return &Claims{
 		Subject:       idToken.Subject,
