@@ -68,6 +68,24 @@ func (i *Index) Put(d Doc) error {
 	return nil
 }
 
+// PutBatch indexes (or replaces) many documents in a single Bleve batch — one
+// store-to-index flush instead of one per document. An empty slice is a no-op.
+func (i *Index) PutBatch(docs []Doc) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	batch := i.idx.NewBatch()
+	for _, d := range docs {
+		if err := batch.Index(d.ID, d); err != nil {
+			return fmt.Errorf("batch index doc %s: %w", d.ID, err)
+		}
+	}
+	if err := i.idx.Batch(batch); err != nil {
+		return fmt.Errorf("flush index batch: %w", err)
+	}
+	return nil
+}
+
 // Delete removes a document from the index (no error if absent).
 func (i *Index) Delete(id string) error {
 	if err := i.idx.Delete(id); err != nil {

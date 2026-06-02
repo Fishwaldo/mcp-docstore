@@ -178,3 +178,29 @@ func TestSearchSnippetExcludesIdentityFields(t *testing.T) {
 		require.NotContains(t, res[0].Snippet, ownerUUID, "snippet must not echo the owner UUID")
 	}
 }
+
+func TestPutBatchIndexesMultiple(t *testing.T) {
+	idx := openTemp(t)
+	docs := []Doc{
+		{ID: "b1", TenantID: "t1", ProjectID: "p1", OwnerID: "u1", Visibility: "private", Title: "batch one", Body: "needle alpha"},
+		{ID: "b2", TenantID: "t1", ProjectID: "p1", OwnerID: "u1", Visibility: "private", Title: "batch two", Body: "needle beta"},
+		{ID: "b3", TenantID: "t1", ProjectID: "p1", OwnerID: "u1", Visibility: "private", Title: "batch three", Body: "needle gamma"},
+	}
+	require.NoError(t, idx.PutBatch(docs))
+
+	n, err := idx.count()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), n)
+
+	res, err := idx.Search(Query{Text: "needle", TenantID: "t1", UserID: "u1"})
+	require.NoError(t, err)
+	require.Len(t, res, 3)
+}
+
+func TestPutBatchEmptyIsNoError(t *testing.T) {
+	idx := openTemp(t)
+	require.NoError(t, idx.PutBatch(nil))
+	n, err := idx.count()
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), n)
+}
