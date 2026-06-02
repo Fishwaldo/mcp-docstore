@@ -118,7 +118,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	mcpServer := imcp.NewMCPServer(svc, auth.IdentityFromRequest, logger, icons, resolveVersion())
 
 	bearer := mcpauth.RequireBearerToken(
-		auth.NewResourceVerifier(oidcVerifier, resolver, st),
+		auth.NewResourceVerifier(oidcVerifier, resolver, st, logger, cfg.Logging.ClientIPHeader),
 		&mcpauth.RequireBearerTokenOptions{ResourceMetadataURL: cfg.PublicURL + metadataPath},
 	)
 	streamable := sdkmcp.NewStreamableHTTPHandler(
