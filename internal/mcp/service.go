@@ -183,7 +183,7 @@ func (s *Service) AppendDocument(ctx context.Context, id store.Identity, docID u
 		if d.Body != "" {
 			newBody = d.Body + "\n" + text
 		}
-		out, err := s.EditReplace(ctx, id, docID, d.Version, nil, &newBody, nil, comment)
+		out, err := s.editLoadedAndIndex(ctx, id, d, store.EditDocument{BaseVersion: d.Version, Body: &newBody, Comment: comment})
 		if err == nil {
 			return out, nil
 		}
