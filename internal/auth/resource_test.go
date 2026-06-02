@@ -31,7 +31,7 @@ func newAuthStore(t *testing.T) *store.Store {
 func TestResourceVerifierResolvesIdentity(t *testing.T) {
 	ctx := context.Background()
 	issuer, sign := startOIDC(t)
-	ov, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off")
+	ov, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off", 15*time.Second)
 	require.NoError(t, err)
 	res, err := tenant.NewResolver([]config.TenantSpec{
 		{Key: "acme", Match: config.TenantMatch{Domains: []string{"acme.com"}}, Admins: []string{"alice@acme.com"}},

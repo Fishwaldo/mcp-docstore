@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 )
@@ -26,18 +27,27 @@ type OIDCVerifier struct {
 // discovery runs against issuer (issuer + /.well-known/openid-configuration); when set,
 // the provider metadata is fetched from discoveryURL instead, for providers that publish
 // it at an off-spec path (e.g. RFC 8414 /.well-known/oauth-authorization-server).
-func NewOIDCVerifier(ctx context.Context, issuer, discoveryURL, audience, emailClaim, groupsClaim, emailVerifiedPolicy string) (*OIDCVerifier, error) {
+// discoveryTimeout bounds the discovery HTTP calls and is also installed on the client the
+// provider reuses for later JWKS key refreshes, so a hung IdP cannot block construction or
+// token verification indefinitely.
+func NewOIDCVerifier(ctx context.Context, issuer, discoveryURL, audience, emailClaim, groupsClaim, emailVerifiedPolicy string, discoveryTimeout time.Duration) (*OIDCVerifier, error) {
 	// Fail fast on an empty audience: with ClientID="" and SkipClientIDCheck=false the
 	// aud check would error on every Verify at runtime instead of here at construction.
 	if audience == "" {
 		return nil, fmt.Errorf("oidc verifier: audience is required")
 	}
+	// Bound discovery + JWKS refresh: a hung IdP must not block startup or verification.
+	httpClient := &http.Client{Timeout: discoveryTimeout}
+	ctx = oidc.ClientContext(ctx, httpClient)
+	dctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+
 	var provider *oidc.Provider
 	var err error
 	if discoveryURL == "" {
-		provider, err = oidc.NewProvider(ctx, issuer)
+		provider, err = oidc.NewProvider(dctx, issuer)
 	} else {
-		provider, err = providerFromMetadataURL(ctx, issuer, discoveryURL)
+		provider, err = providerFromMetadataURL(dctx, issuer, discoveryURL, httpClient)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("oidc discovery: %w", err)
@@ -61,12 +71,12 @@ func NewOIDCVerifier(ctx context.Context, issuer, discoveryURL, audience, emailC
 // unlike oidc.NewProvider, oidc.ProviderConfig does not enforce it) so a swapped or
 // misconfigured metadata document can't silently point token verification at the wrong
 // signing keys.
-func providerFromMetadataURL(ctx context.Context, issuer, metadataURL string) (*oidc.Provider, error) {
+func providerFromMetadataURL(ctx context.Context, issuer, metadataURL string, httpClient *http.Client) (*oidc.Provider, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metadataURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build metadata request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch metadata: %w", err)
 	}

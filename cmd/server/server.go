@@ -105,7 +105,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	oidcVerifier, err := auth.NewOIDCVerifier(ctx, cfg.OIDC.Issuer, cfg.OIDC.DiscoveryURL, cfg.OIDC.Audience, cfg.OIDC.EmailClaim, cfg.OIDC.GroupsClaim, cfg.OIDC.EmailVerifiedPolicy)
+	oidcVerifier, err := auth.NewOIDCVerifier(ctx, cfg.OIDC.Issuer, cfg.OIDC.DiscoveryURL, cfg.OIDC.Audience, cfg.OIDC.EmailClaim, cfg.OIDC.GroupsClaim, cfg.OIDC.EmailVerifiedPolicy, cfg.OIDC.DiscoveryTimeout)
 	if err != nil {
 		return err
 	}

@@ -50,6 +50,9 @@ type OIDC struct {
 	//   "if_present" — reject only if the claim is present and false.
 	//   "off"        — never check the claim.
 	EmailVerifiedPolicy string `mapstructure:"email_verified_policy"`
+	// DiscoveryTimeout bounds the HTTP calls for OIDC discovery and JWKS key refresh, so a
+	// hung or slow IdP can't block startup or token verification indefinitely. Default 15s.
+	DiscoveryTimeout time.Duration `mapstructure:"discovery_timeout"`
 }
 
 type TenantSpec struct {
@@ -75,6 +78,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("oidc.email_claim", "email")
 	v.SetDefault("oidc.groups_claim", "groups")
 	v.SetDefault("oidc.email_verified_policy", "require")
+	v.SetDefault("oidc.discovery_timeout", 15*time.Second)
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)

@@ -20,6 +20,7 @@ oidc:
   email_claim: "email"
   groups_claim: "groups"
   email_verified_policy: "require"        # require | if_present | off — gate on the email_verified claim (default require)
+  discovery_timeout: 15s                  # bounds OIDC discovery + JWKS refresh HTTP calls
 
 tenants:
   - key: acme
