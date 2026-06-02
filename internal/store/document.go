@@ -119,15 +119,27 @@ type EditDocument struct {
 	Comment  string
 }
 
-// EditDocument applies an optimistic-concurrency edit: it verifies the caller's
-// base_version matches the current version (ErrConflict otherwise), snapshots the
-// prior state, applies the supplied changes (pointer-is-set semantics), bumps the
-// version, and prunes snapshots beyond retention. The whole operation is transactional.
+// EditDocument applies an optimistic-concurrency edit: it loads the document,
+// verifies the caller's base_version matches the current version (ErrConflict
+// otherwise), snapshots the prior state, applies the supplied changes
+// (pointer-is-set semantics), bumps the version, and prunes snapshots beyond
+// retention. The whole operation is transactional.
 func (s *Store) EditDocument(ctx context.Context, id Identity, documentID uuid.UUID, in EditDocument) (*ent.Document, error) {
 	d, err := s.loadDocument(ctx, id, documentID)
 	if err != nil {
 		return nil, err
 	}
+	return s.EditLoaded(ctx, id, d, in)
+}
+
+// EditLoaded applies an optimistic-concurrency edit to a document the caller has
+// ALREADY loaded (with its project edges, e.g. via GetDocument). It performs the
+// same access + version checks, snapshot, guarded update, and prune as
+// EditDocument, but skips the redundant re-fetch. The version guard remains the
+// SQL WHERE clause on the current version, so concurrency safety does not depend
+// on the freshness of the passed-in document — a stale in-memory version still
+// yields ErrConflict at write time.
+func (s *Store) EditLoaded(ctx context.Context, id Identity, d *ent.Document, in EditDocument) (*ent.Document, error) {
 	if err := s.documentAccess(d, id, WriteAccess); err != nil {
 		return nil, err
 	}
