@@ -97,13 +97,36 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (*Claims, er
 		return nil, fmt.Errorf("verify token: missing subject")
 	}
 	email, _ := raw[v.emailClaim].(string)
-	return &Claims{
+	claims := &Claims{
 		Subject:       idToken.Subject,
 		Email:         email,
 		Groups:        toStringSlice(raw[v.groupsClaim]),
 		Expiry:        idToken.Expiry,
 		EmailVerified: parseEmailVerified(raw["email_verified"]),
-	}, nil
+	}
+	if err := v.enforceEmailVerified(claims.EmailVerified); err != nil {
+		return nil, err
+	}
+	return claims, nil
+}
+
+// enforceEmailVerified applies the configured policy to the decoded email_verified value:
+//
+//	"require"    — present and true, else reject;
+//	"if_present" — reject only when present and false;
+//	"off" (or any unknown value) — never reject.
+func (v *OIDCVerifier) enforceEmailVerified(verified *bool) error {
+	switch v.emailVerifiedPolicy {
+	case "require":
+		if verified == nil || !*verified {
+			return fmt.Errorf("verify token: email not verified")
+		}
+	case "if_present":
+		if verified != nil && !*verified {
+			return fmt.Errorf("verify token: email not verified")
+		}
+	}
+	return nil
 }
 
 // parseEmailVerified coerces a JSON "email_verified" claim into *bool, tolerating both

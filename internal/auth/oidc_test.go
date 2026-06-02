@@ -180,6 +180,57 @@ func TestOIDCVerifierRequiresAudience(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOIDCVerifierEmailVerifiedPolicy(t *testing.T) {
+	ctx := context.Background()
+	issuer, sign := startOIDC(t)
+	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+
+	// claim renders the email_verified fragment of the token body ("" = claim absent).
+	mint := func(claimFragment string) string {
+		body := `{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s","exp":` + exp + `,"email":"a@acme.com"`
+		if claimFragment != "" {
+			body += `,"email_verified":` + claimFragment
+		}
+		return sign(body + `}`)
+	}
+
+	cases := []struct {
+		policy    string
+		claim     string // "true" | "false" | "" (absent)
+		wantError bool
+	}{
+		{"require", "true", false},
+		{"require", "false", true},
+		{"require", "", true},
+		{"if_present", "true", false},
+		{"if_present", "false", true},
+		{"if_present", "", false},
+		{"off", "true", false},
+		{"off", "false", false},
+		{"off", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.policy+"/"+claimName(tc.claim), func(t *testing.T) {
+			v, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", tc.policy)
+			require.NoError(t, err)
+			_, err = v.Verify(ctx, mint(tc.claim))
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func claimName(c string) string {
+	if c == "" {
+		return "absent"
+	}
+	return c
+}
+
 func TestOIDCVerifierRejectsEmptySubject(t *testing.T) {
 	ctx := context.Background()
 	issuer, sign := startOIDC(t)
