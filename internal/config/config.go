@@ -24,6 +24,7 @@ type Config struct {
 	Database       Database      `mapstructure:"database"`
 	OIDC           OIDC          `mapstructure:"oidc"`
 	Tenants        []TenantSpec  `mapstructure:"tenants"`
+	Logging        Logging       `mapstructure:"logging"`
 }
 
 type Database struct {
@@ -42,6 +43,15 @@ type OIDC struct {
 	Audience     string `mapstructure:"audience"`
 	EmailClaim   string `mapstructure:"email_claim"`
 	GroupsClaim  string `mapstructure:"groups_claim"`
+}
+
+// Logging configures the slog output. Level is debug|info|warn|error; Format is json|text.
+// ClientIPHeader, when set (e.g. "X-Forwarded-For"), is the request header trusted for the
+// caller's IP behind a proxy; empty means use the connection's RemoteAddr.
+type Logging struct {
+	Level          string `mapstructure:"level"`
+	Format         string `mapstructure:"format"`
+	ClientIPHeader string `mapstructure:"client_ip_header"`
 }
 
 type TenantSpec struct {
@@ -65,6 +75,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("session_timeout", 2*time.Minute)
 	v.SetDefault("oidc.email_claim", "email")
 	v.SetDefault("oidc.groups_claim", "groups")
+	v.SetDefault("logging.level", "info")
+	v.SetDefault("logging.format", "json")
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -143,6 +155,16 @@ func (c *Config) Validate() error {
 			}
 			seenEmail[e] = t.Key
 		}
+	}
+	switch c.Logging.Level {
+	case "", "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("logging.level must be one of debug|info|warn|error, got %q", c.Logging.Level)
+	}
+	switch c.Logging.Format {
+	case "", "json", "text":
+	default:
+		return fmt.Errorf("logging.format must be json or text, got %q", c.Logging.Format)
 	}
 	return nil
 }

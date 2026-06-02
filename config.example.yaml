@@ -4,6 +4,11 @@ snapshot_retention: 10
 bleve_index_path: "./data/index.bleve"
 session_timeout: 2m                        # reap idle Streamable HTTP sessions after this; 0 = never reap
 
+logging:
+  level: info                              # debug | info | warn | error
+  format: json                             # json | text
+  client_ip_header: ""                     # e.g. "X-Forwarded-For" behind a proxy; empty = use RemoteAddr
+
 database:
   driver: sqlite                          # sqlite | mysql | postgres
   dsn: "file:./data/docstore.db?_pragma=foreign_keys(1)"

@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,28 +29,40 @@ const identityKey = "docstore.identity"
 // mcpauth.ErrInvalidToken so RequireBearerToken returns
 // 401 with the resource-metadata challenge (we intentionally collapse the finer 401/403
 // distinction into 401 to use the SDK middleware; the challenge still guides the client).
-func NewResourceVerifier(v Verifier, resolver *tenant.Resolver, st *store.Store) mcpauth.TokenVerifier {
-	return func(ctx context.Context, rawToken string, _ *http.Request) (*mcpauth.TokenInfo, error) {
+// It logs auth success at DEBUG and failures at WARN/ERROR with the client IP and a stable
+// reason field; the raw token is never logged.
+func NewResourceVerifier(v Verifier, resolver *tenant.Resolver, st *store.Store, log *slog.Logger, ipHeader string) mcpauth.TokenVerifier {
+	if log == nil {
+		log = slog.Default()
+	}
+	return func(ctx context.Context, rawToken string, r *http.Request) (*mcpauth.TokenInfo, error) {
+		ip := ClientIP(r, ipHeader)
 		claims, err := v.Verify(ctx, rawToken)
 		if err != nil || claims == nil {
+			log.WarnContext(ctx, "auth failed", "reason", "token_invalid", "client_ip", ip)
 			return nil, fmt.Errorf("%w: %v", mcpauth.ErrInvalidToken, err)
 		}
 		key, ok := resolver.Resolve(claims.Email)
 		if !ok {
+			log.WarnContext(ctx, "auth failed", "reason", "email_not_onboarded", "email", claims.Email, "client_ip", ip)
 			return nil, fmt.Errorf("%w: email not onboarded", mcpauth.ErrInvalidToken)
 		}
 		ten, err := st.TenantByKey(ctx, key)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
+				log.WarnContext(ctx, "auth failed", "reason", "tenant_not_provisioned", "email", claims.Email, "client_ip", ip)
 				return nil, fmt.Errorf("%w: tenant not provisioned", mcpauth.ErrInvalidToken)
 			}
+			log.ErrorContext(ctx, "auth error", "reason", "db_error", "email", claims.Email, "client_ip", ip, "error", err)
 			return nil, err // DB fault -> 500 via the SDK middleware
 		}
 		usr, err := st.UpsertUser(ctx, ten.ID, claims.Subject, claims.Email, resolver.IsAdmin(key, claims.Email))
 		if err != nil {
 			if errors.Is(err, store.ErrInvalid) {
+				log.WarnContext(ctx, "auth failed", "reason", "identity_rejected", "email", claims.Email, "client_ip", ip)
 				return nil, fmt.Errorf("%w: identity rejected", mcpauth.ErrInvalidToken)
 			}
+			log.ErrorContext(ctx, "auth error", "reason", "db_error", "email", claims.Email, "client_ip", ip, "error", err)
 			return nil, err
 		}
 		id := store.Identity{
@@ -57,11 +71,18 @@ func NewResourceVerifier(v Verifier, resolver *tenant.Resolver, st *store.Store)
 			Groups:   claims.Groups,
 			IsAdmin:  usr.Role == user.RoleAdmin,
 		}
-		return &mcpauth.TokenInfo{
-			UserID:     usr.ID.String(), // enables the SDK's per-session hijack check
-			Expiration: claims.Expiry,
-			Extra:      map[string]any{identityKey: id},
-		}, nil
+		log.DebugContext(ctx, "auth ok", "tenant", key, "user", usr.ID.String(), "admin", id.IsAdmin, "client_ip", ip)
+		return NewTokenInfo(usr.ID.String(), claims.Expiry, id, ip), nil
+	}
+}
+
+// NewTokenInfo builds the SDK TokenInfo carrying our resolved identity and the client IP in
+// Extra. The verifier uses it on success; tests use it to construct authenticated requests.
+func NewTokenInfo(userID string, exp time.Time, id store.Identity, clientIP string) *mcpauth.TokenInfo {
+	return &mcpauth.TokenInfo{
+		UserID:     userID, // enables the SDK's per-session hijack check
+		Expiration: exp,
+		Extra:      map[string]any{identityKey: id, clientIPKey: clientIP},
 	}
 }
 
