@@ -191,6 +191,46 @@ oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 	}
 }
 
+func TestValidateRejectsNonPositiveDiscoveryTimeout(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"zero", "  discovery_timeout: 0\n"},
+		{"negative", "  discovery_timeout: -1s\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+`+tc.val)
+			_, err := Load(path)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "discovery_timeout")
+		})
+	}
+}
+
+func TestDiscoveryTimeoutPositiveOK(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+  discovery_timeout: 5s
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Second, cfg.OIDC.DiscoveryTimeout)
+}
+
 func TestMaxRequestBytesPositiveOK(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"
