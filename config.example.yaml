@@ -2,6 +2,7 @@ listen_addr: ":8080"
 public_url: "https://docs.example.com"   # public base URL; used in protected-resource metadata + WWW-Authenticate
 snapshot_retention: 10
 bleve_index_path: "./data/index.bleve"
+session_timeout: 2m                        # reap idle Streamable HTTP sessions after this; 0 = never reap
 
 database:
   driver: sqlite                          # sqlite | mysql | postgres

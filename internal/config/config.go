@@ -7,18 +7,23 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	PublicURL         string       `mapstructure:"public_url"`
-	ListenAddr        string       `mapstructure:"listen_addr"`
-	SnapshotRetention int          `mapstructure:"snapshot_retention"`
-	BleveIndexPath    string       `mapstructure:"bleve_index_path"`
-	Database          Database     `mapstructure:"database"`
-	OIDC              OIDC         `mapstructure:"oidc"`
-	Tenants           []TenantSpec `mapstructure:"tenants"`
+	PublicURL         string `mapstructure:"public_url"`
+	ListenAddr        string `mapstructure:"listen_addr"`
+	SnapshotRetention int    `mapstructure:"snapshot_retention"`
+	BleveIndexPath    string `mapstructure:"bleve_index_path"`
+	// SessionTimeout reaps idle Streamable HTTP sessions after this duration with no
+	// requests, bounding per-session bookkeeping. Zero means sessions are never
+	// reaped (the SDK default).
+	SessionTimeout time.Duration `mapstructure:"session_timeout"`
+	Database       Database      `mapstructure:"database"`
+	OIDC           OIDC          `mapstructure:"oidc"`
+	Tenants        []TenantSpec  `mapstructure:"tenants"`
 }
 
 type Database struct {
@@ -57,6 +62,7 @@ func Load(path string) (*Config, error) {
 	v.SetConfigFile(path)
 	v.SetDefault("listen_addr", ":8080")
 	v.SetDefault("snapshot_retention", 10)
+	v.SetDefault("session_timeout", 2*time.Minute)
 	v.SetDefault("oidc.email_claim", "email")
 	v.SetDefault("oidc.groups_claim", "groups")
 

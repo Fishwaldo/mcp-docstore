@@ -121,7 +121,10 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 		auth.NewResourceVerifier(oidcVerifier, resolver, st),
 		&mcpauth.RequireBearerTokenOptions{ResourceMetadataURL: cfg.PublicURL + metadataPath},
 	)
-	streamable := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return mcpServer }, nil)
+	streamable := sdkmcp.NewStreamableHTTPHandler(
+		func(*http.Request) *sdkmcp.Server { return mcpServer },
+		&sdkmcp.StreamableHTTPOptions{SessionTimeout: cfg.SessionTimeout, Logger: logger},
+	)
 
 	mux := http.NewServeMux()
 	mux.Handle(metadataPath, mcpauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
