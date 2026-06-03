@@ -183,3 +183,63 @@ func TestDeleteDocument(t *testing.T) {
 	_, err = s.GetDocument(ctx, id, d.ID)
 	require.ErrorIs(t, err, ErrNotFound)
 }
+
+func TestEditLoadedMatchesEditDocument(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+	p, err := s.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+	d, err := s.CreateDocument(ctx, id, p.ID, NewDocument{Title: "T", Overview: "o1", Body: "b1"})
+	require.NoError(t, err)
+
+	loaded, err := s.loadDocument(ctx, id, d.ID)
+	require.NoError(t, err)
+	body2 := "b2"
+	d2, err := s.EditLoaded(ctx, id, loaded, EditDocument{BaseVersion: 1, Body: &body2, Comment: "second"})
+	require.NoError(t, err)
+	require.Equal(t, 2, d2.Version)
+	require.Equal(t, "b2", d2.Body)
+	require.Equal(t, "o1", d2.Overview) // unchanged field preserved
+
+	snaps, err := s.ListSnapshots(ctx, id, d.ID)
+	require.NoError(t, err)
+	require.Len(t, snaps, 1)
+	require.Equal(t, 1, snaps[0].Version)
+	require.Equal(t, "b1", snaps[0].Body)
+}
+
+func TestEditLoadedStaleVersionConflicts(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+	p, err := s.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+	d, err := s.CreateDocument(ctx, id, p.ID, NewDocument{Title: "T", Overview: "o", Body: "b"})
+	require.NoError(t, err)
+	loaded, err := s.loadDocument(ctx, id, d.ID)
+	require.NoError(t, err)
+
+	body := "x"
+	_, err = s.EditLoaded(ctx, id, loaded, EditDocument{BaseVersion: 99, Body: &body})
+	require.ErrorIs(t, err, ErrConflict)
+}
+
+func TestEditLoadedRequiresWriteAccess(t *testing.T) {
+	s := newTestStore(t)
+	ctx, owner := fixture(t, s)
+	readerEnt, err := s.UpsertUser(ctx, owner.TenantID, "sub-r", "r@acme.com", false)
+	require.NoError(t, err)
+	reader := Identity{TenantID: owner.TenantID, UserID: readerEnt.ID}
+	p, err := s.CreateProject(ctx, owner, "P", "", "private")
+	require.NoError(t, err)
+	d, err := s.CreateDocument(ctx, owner, p.ID, NewDocument{Title: "T", Overview: "o", Body: "b"})
+	require.NoError(t, err)
+	_, err = s.ShareProjectUsers(ctx, owner, p.ID, []string{"r@acme.com"}, "read")
+	require.NoError(t, err)
+
+	// Reader loads the doc (read access) but EditLoaded must reject the write.
+	loaded, err := s.loadDocument(ctx, reader, d.ID)
+	require.NoError(t, err)
+	body := "x"
+	_, err = s.EditLoaded(ctx, reader, loaded, EditDocument{BaseVersion: 1, Body: &body})
+	require.ErrorIs(t, err, ErrPermission)
+}

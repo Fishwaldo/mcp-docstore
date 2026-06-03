@@ -36,9 +36,10 @@ func (r *registrar) ident(req *sdk.CallToolRequest) (store.Identity, error) {
 const serverInstructions = `mcp-docstore stores documents so they persist across sessions and agents.
 
 Model:
-- Documents live in projects. A project is "org" (visible to everyone in the tenant) or
-  "private" (owner plus explicit user/group shares). Use list_projects (it reports your
-  access level) and create_project.
+- Documents live in projects. An "org" project is readable AND editable by everyone in the
+  tenant — any member can create, edit, or delete its documents. A "private" project is the
+  owner plus explicit user/group shares. Use list_projects (it reports your access level)
+  and create_project.
 - Each document has a short overview (scan this first) and a longer markdown body. Prefer
   list_documents + get_document's overview before fetching or searching full bodies, and
   get_section to pull a single heading's content instead of the whole body.

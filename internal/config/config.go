@@ -18,13 +18,16 @@ type Config struct {
 	SnapshotRetention int    `mapstructure:"snapshot_retention"`
 	BleveIndexPath    string `mapstructure:"bleve_index_path"`
 	// SessionTimeout reaps idle Streamable HTTP sessions after this duration with no
-	// requests, bounding per-session bookkeeping. Zero means sessions are never
-	// reaped (the SDK default).
+	// requests, bounding per-session bookkeeping. Must be positive; a zero or negative
+	// value is rejected by Validate (Load defaults it to 2m when unset).
 	SessionTimeout time.Duration `mapstructure:"session_timeout"`
-	Database       Database      `mapstructure:"database"`
-	OIDC           OIDC          `mapstructure:"oidc"`
-	Tenants        []TenantSpec  `mapstructure:"tenants"`
-	Logging        Logging       `mapstructure:"logging"`
+	// MaxRequestBytes caps the request body size accepted on the MCP endpoint, via
+	// http.MaxBytesReader, to bound memory on a single request. Defaults to 4 MiB.
+	MaxRequestBytes int64        `mapstructure:"max_request_bytes"`
+	Database        Database     `mapstructure:"database"`
+	OIDC            OIDC         `mapstructure:"oidc"`
+	Tenants         []TenantSpec `mapstructure:"tenants"`
+	Logging         Logging      `mapstructure:"logging"`
 }
 
 type Database struct {
@@ -43,6 +46,14 @@ type OIDC struct {
 	Audience     string `mapstructure:"audience"`
 	EmailClaim   string `mapstructure:"email_claim"`
 	GroupsClaim  string `mapstructure:"groups_claim"`
+	// EmailVerifiedPolicy controls how the "email_verified" claim gates a token:
+	//   "require"    — the claim must be present and true (default; most secure).
+	//   "if_present" — reject only if the claim is present and false.
+	//   "off"        — never check the claim.
+	EmailVerifiedPolicy string `mapstructure:"email_verified_policy"`
+	// DiscoveryTimeout bounds the HTTP calls for OIDC discovery and JWKS key refresh, so a
+	// hung or slow IdP can't block startup or token verification indefinitely. Default 15s.
+	DiscoveryTimeout time.Duration `mapstructure:"discovery_timeout"`
 }
 
 // Logging configures the slog output. Level is debug|info|warn|error; Format is json|text.
@@ -73,8 +84,11 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("listen_addr", ":8080")
 	v.SetDefault("snapshot_retention", 10)
 	v.SetDefault("session_timeout", 2*time.Minute)
+	v.SetDefault("max_request_bytes", 4<<20)
 	v.SetDefault("oidc.email_claim", "email")
 	v.SetDefault("oidc.groups_claim", "groups")
+	v.SetDefault("oidc.email_verified_policy", "require")
+	v.SetDefault("oidc.discovery_timeout", 15*time.Second)
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.format", "json")
 
@@ -126,11 +140,25 @@ func (c *Config) Validate() error {
 	if c.OIDC.Audience == "" {
 		return fmt.Errorf("oidc.audience is required")
 	}
+	switch c.OIDC.EmailVerifiedPolicy {
+	case "require", "if_present", "off":
+	default:
+		return fmt.Errorf("oidc.email_verified_policy must be one of require|if_present|off, got %q", c.OIDC.EmailVerifiedPolicy)
+	}
 	if c.PublicURL == "" {
 		return fmt.Errorf("public_url is required")
 	}
 	if c.BleveIndexPath == "" {
 		return fmt.Errorf("bleve_index_path is required")
+	}
+	if c.SessionTimeout <= 0 {
+		return fmt.Errorf("session_timeout must be positive (got %s)", c.SessionTimeout)
+	}
+	if c.MaxRequestBytes <= 0 {
+		return fmt.Errorf("max_request_bytes must be positive (got %d)", c.MaxRequestBytes)
+	}
+	if c.OIDC.DiscoveryTimeout <= 0 {
+		return fmt.Errorf("oidc.discovery_timeout must be positive (got %s)", c.OIDC.DiscoveryTimeout)
 	}
 	seenKey := map[string]bool{}
 	seenDomain := map[string]string{}

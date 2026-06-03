@@ -14,7 +14,7 @@ import (
 type searchDocumentsIn struct {
 	Query      string   `json:"query" jsonschema:"plain keywords or a phrase; query operators (AND/OR, field:value, wildcards) are not supported and are treated as literal text"`
 	ProjectID  string   `json:"project_id,omitempty" jsonschema:"optional project filter"`
-	Visibility string   `json:"visibility,omitempty" jsonschema:"optional visibility filter: org or private"`
+	Visibility string   `json:"visibility,omitempty" jsonschema:"optional visibility filter: org (tenant-wide read+write) or private"`
 	Tags       []string `json:"tags,omitempty" jsonschema:"optional tag filter (all must match)"`
 	Limit      int      `json:"limit,omitempty" jsonschema:"max results (default 20)"`
 }
@@ -37,7 +37,7 @@ func (r *registrar) registerSearchTool(srv *sdk.Server) {
 				Tags:       in.Tags,
 				Limit:      in.Limit,
 			}
-			hits, err := r.svc.Search(id, q)
+			hits, err := r.svc.Search(ctx, id, q)
 			if err != nil {
 				return nil, searchDocumentsOut{}, toolErr(err)
 			}

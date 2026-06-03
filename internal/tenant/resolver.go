@@ -11,6 +11,13 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/config"
 )
 
+// Normalize canonicalizes an email for case-insensitive, whitespace-insensitive
+// comparison: trim surrounding whitespace and lower-case. Used everywhere an email
+// is stored, matched, or resolved so the same address always maps consistently.
+func Normalize(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 // Resolver maps emails/domains to tenant keys. Built once from config; read-only.
 type Resolver struct {
 	byEmail  map[string]string
@@ -31,11 +38,11 @@ func NewResolver(specs []config.TenantSpec) (*Resolver, error) {
 				r.admins[s.Key] = set
 			}
 			for _, a := range s.Admins {
-				set[strings.ToLower(strings.TrimSpace(a))] = true
+				set[Normalize(a)] = true
 			}
 		}
 		for _, e := range s.Match.Emails {
-			e = strings.ToLower(e)
+			e = Normalize(e)
 			if other, dup := r.byEmail[e]; dup && other != s.Key {
 				return nil, fmt.Errorf("email %q mapped to both %q and %q", e, other, s.Key)
 			}
@@ -55,7 +62,7 @@ func NewResolver(specs []config.TenantSpec) (*Resolver, error) {
 // Resolve returns the tenant key for an email, exact-match first then domain.
 // Returns ok=false for malformed emails or unmapped identities.
 func (r *Resolver) Resolve(email string) (string, bool) {
-	e := strings.ToLower(strings.TrimSpace(email))
+	e := Normalize(email)
 	at := strings.LastIndex(e, "@")
 	if at <= 0 || at == len(e)-1 {
 		return "", false // malformed
@@ -76,7 +83,7 @@ func (r *Resolver) IsAdmin(key, email string) bool {
 	if !ok {
 		return false
 	}
-	return set[strings.ToLower(strings.TrimSpace(email))]
+	return set[Normalize(email)]
 }
 
 // ValidEmail reports whether s is a structurally acceptable email address.

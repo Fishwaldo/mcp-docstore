@@ -2,7 +2,8 @@ listen_addr: ":8080"
 public_url: "https://docs.example.com"   # public base URL; used in protected-resource metadata + WWW-Authenticate
 snapshot_retention: 10
 bleve_index_path: "./data/index.bleve"
-session_timeout: 2m                        # reap idle Streamable HTTP sessions after this; 0 = never reap
+session_timeout: 2m                        # reap idle Streamable HTTP sessions after this; must be positive
+max_request_bytes: 4194304                 # cap request body bytes on the MCP endpoint (4 MiB); oversized requests are rejected
 
 logging:
   level: info                              # debug | info | warn | error
@@ -11,6 +12,8 @@ logging:
 
 database:
   driver: sqlite                          # sqlite | mysql | postgres
+  # sqlite REQUIRES _pragma=foreign_keys(1) in the DSN: foreign keys are off by default,
+  # and the server fails fast at startup without it (cascade deletes would orphan rows).
   dsn: "file:./data/docstore.db?_pragma=foreign_keys(1)"
 
 oidc:
@@ -21,6 +24,8 @@ oidc:
   audience: "mcp-docstore"                # the "aud" this resource server requires
   email_claim: "email"
   groups_claim: "groups"
+  email_verified_policy: "require"        # require | if_present | off — gate on the email_verified claim (default require)
+  discovery_timeout: 15s                  # bounds OIDC discovery + JWKS refresh HTTP calls
 
 tenants:
   - key: acme

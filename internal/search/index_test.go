@@ -4,6 +4,7 @@
 package search
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -133,6 +134,31 @@ func TestSearchNoTextMatchesAllAccessible(t *testing.T) {
 	require.False(t, got["noaccess"] || got["archived"] || got["othertenant"])
 }
 
+func TestSearchClampsLimit(t *testing.T) {
+	idx := openTemp(t)
+
+	// Index more than maxLimit (100) documents, all owned by the same identity in the
+	// same tenant (so the caller can read every one) and all sharing the term "alpha".
+	const total = 150
+	for i := 0; i < total; i++ {
+		require.NoError(t, idx.Put(Doc{
+			ID: fmt.Sprintf("d%03d", i), TenantID: "t1", ProjectID: "p1", OwnerID: "u1",
+			Visibility: "private", Title: "doc", Body: "alpha match",
+		}))
+	}
+
+	// A pathological limit must be clamped to maxLimit (100), even though 150 hits match.
+	res, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Limit: 1_000_000_000})
+	require.NoError(t, err)
+	require.Equal(t, 100, len(res), "limit must be clamped to maxLimit")
+
+	// Limit: 0 falls through to the default (20): returns results, never more than the default.
+	res0, err := idx.Search(Query{Text: "alpha", TenantID: "t1", UserID: "u1", Limit: 0})
+	require.NoError(t, err)
+	require.NotEmpty(t, res0)
+	require.LessOrEqual(t, len(res0), 20, "zero limit must use the default cap")
+}
+
 // The access disjunction matches a document on identity fields (owner_id,
 // shared_user_ids) using the caller's own UUID. Those fields must never be
 // highlighted, or the snippet echoes the identity value instead of the text.
@@ -151,4 +177,30 @@ func TestSearchSnippetExcludesIdentityFields(t *testing.T) {
 		require.Len(t, res, 1)
 		require.NotContains(t, res[0].Snippet, ownerUUID, "snippet must not echo the owner UUID")
 	}
+}
+
+func TestPutBatchIndexesMultiple(t *testing.T) {
+	idx := openTemp(t)
+	docs := []Doc{
+		{ID: "b1", TenantID: "t1", ProjectID: "p1", OwnerID: "u1", Visibility: "private", Title: "batch one", Body: "needle alpha"},
+		{ID: "b2", TenantID: "t1", ProjectID: "p1", OwnerID: "u1", Visibility: "private", Title: "batch two", Body: "needle beta"},
+		{ID: "b3", TenantID: "t1", ProjectID: "p1", OwnerID: "u1", Visibility: "private", Title: "batch three", Body: "needle gamma"},
+	}
+	require.NoError(t, idx.PutBatch(docs))
+
+	n, err := idx.count()
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), n)
+
+	res, err := idx.Search(Query{Text: "needle", TenantID: "t1", UserID: "u1"})
+	require.NoError(t, err)
+	require.Len(t, res, 3)
+}
+
+func TestPutBatchEmptyIsNoError(t *testing.T) {
+	idx := openTemp(t)
+	require.NoError(t, idx.PutBatch(nil))
+	n, err := idx.count()
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), n)
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -71,6 +72,189 @@ tenants:
 	require.NoError(t, err)
 	require.Equal(t, "https://docs.example.com", cfg.PublicURL)
 	require.Equal(t, []string{"alice@acme.com"}, cfg.Tenants[0].Admins) // normalize() lower-cases admins
+}
+
+func TestEmailVerifiedPolicyDefaults(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "require", cfg.OIDC.EmailVerifiedPolicy) // secure default
+}
+
+func TestEmailVerifiedPolicyAcceptsKnownValues(t *testing.T) {
+	for _, v := range []string{"require", "if_present", "off"} {
+		path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+  email_verified_policy: "`+v+`"
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, v, cfg.OIDC.EmailVerifiedPolicy)
+	}
+}
+
+func TestEmailVerifiedPolicyRejectsUnknownValue(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+  email_verified_policy: "maybe"
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+	_, err := Load(path)
+	require.ErrorContains(t, err, "oidc.email_verified_policy")
+}
+
+func TestMaxRequestBytesDefaults(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+tenants:
+  - key: a
+    name: A
+    match: {domains: ["a.com"]}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, int64(4<<20), cfg.MaxRequestBytes) // default 4 MiB
+}
+
+func TestValidateRejectsNonPositiveSessionTimeout(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"zero", "session_timeout: 0\n"},
+		{"negative", "session_timeout: -5s\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`+tc.val)
+			_, err := Load(path)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "session_timeout")
+		})
+	}
+}
+
+func TestValidateRejectsNonPositiveMaxRequestBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"zero", "max_request_bytes: 0\n"},
+		{"negative", "max_request_bytes: -1\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`+tc.val)
+			_, err := Load(path)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "max_request_bytes")
+		})
+	}
+}
+
+func TestValidateRejectsNonPositiveDiscoveryTimeout(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+	}{
+		{"zero", "  discovery_timeout: 0\n"},
+		{"negative", "  discovery_timeout: -1s\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+`+tc.val)
+			_, err := Load(path)
+			require.Error(t, err)
+			require.ErrorContains(t, err, "discovery_timeout")
+		})
+	}
+}
+
+func TestDiscoveryTimeoutPositiveOK(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc:
+  issuer: "https://idp.example.com"
+  audience: "mcp-docstore"
+  discovery_timeout: 5s
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Second, cfg.OIDC.DiscoveryTimeout)
+}
+
+func TestMaxRequestBytesPositiveOK(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+max_request_bytes: 1048576
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, int64(1048576), cfg.MaxRequestBytes)
+}
+
+func TestSessionTimeoutPositiveOK(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+session_timeout: 30s
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 30*time.Second, cfg.SessionTimeout)
 }
 
 func TestValidateRejectsDuplicateDomain(t *testing.T) {

@@ -25,12 +25,16 @@ const identityKey = "docstore.identity"
 // NewResourceVerifier adapts our OIDC verifier + tenant resolver + store into the SDK's
 // auth.TokenVerifier. On every request it re-verifies the token and re-resolves identity,
 // so token expiry and the groups claim are always current (revoked group access takes
-// effect on the next request). Any identity-resolution failure is wrapped as
-// mcpauth.ErrInvalidToken so RequireBearerToken returns
-// 401 with the resource-metadata challenge (we intentionally collapse the finer 401/403
-// distinction into 401 to use the SDK middleware; the challenge still guides the client).
-// It logs auth success at DEBUG and failures at WARN/ERROR with the client IP and a stable
-// reason field; the raw token is never logged.
+// effect on the next request). This is a deliberate trade-off: the per-request cost is one
+// signature verification plus a single indexed external_subject lookup (UpsertUser keys on
+// the OIDC subject), which is cheap relative to never noticing a revoked or expired token.
+// A bounded TTL identity cache to amortize the lookup is intentionally deferred until the
+// per-request cost is shown to matter; adding one now would reintroduce a staleness window
+// for revoked access. Any identity-resolution failure is wrapped as mcpauth.ErrInvalidToken
+// so RequireBearerToken returns 401 with the resource-metadata challenge (we intentionally
+// collapse the finer 401/403 distinction into 401 to use the SDK middleware; the challenge
+// still guides the client). It logs auth success at DEBUG and failures at WARN/ERROR with
+// the client IP and a stable reason field; the raw token is never logged.
 func NewResourceVerifier(v Verifier, resolver *tenant.Resolver, st *store.Store, log *slog.Logger, ipHeader string) mcpauth.TokenVerifier {
 	if log == nil {
 		log = slog.Default()

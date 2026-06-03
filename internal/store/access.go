@@ -56,7 +56,9 @@ func effectiveAccess(p projectFacts, id Identity) Access {
 		return WriteAccess
 	}
 	if p.Visibility == "org" {
-		return WriteAccess // org membership grants read+write; nothing can exceed it
+		// Org membership grants read+write (including delete) to every tenant member, so
+		// nothing can exceed it — user/group shares on an org project are redundant no-ops.
+		return WriteAccess
 	}
 	best := NoAccess
 	if lvl, ok := p.UserShares[id.UserID]; ok {

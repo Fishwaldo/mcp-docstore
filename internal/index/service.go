@@ -62,6 +62,10 @@ func (s *Service) Search(q search.Query) ([]search.Result, error) {
 	return s.index.Search(q)
 }
 
+// CloseForTest closes the underlying search index. Test-only: used to simulate a
+// search-backend outage so the non-fatal index-sync behaviour can be exercised.
+func (s *Service) CloseForTest() error { return s.index.Close() }
+
 // Reindex (re)indexes a single document by ID.
 func (s *Service) Reindex(ctx context.Context, documentID uuid.UUID) error {
 	d, err := s.store.DocumentForIndex(ctx, documentID)
@@ -83,12 +87,11 @@ func (s *Service) ReindexProject(ctx context.Context, projectID uuid.UUID) error
 	if err != nil {
 		return err
 	}
+	batch := make([]search.Doc, 0, len(docs))
 	for _, d := range docs {
-		if err := s.index.Put(toDoc(d)); err != nil {
-			return err
-		}
+		batch = append(batch, toDoc(d))
 	}
-	return nil
+	return s.index.PutBatch(batch)
 }
 
 // RebuildAll rebuilds the entire index from the DB. It first Resets (drops) the index
@@ -100,15 +103,14 @@ func (s *Service) RebuildAll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	batch := make([]search.Doc, 0, len(docs))
+	for _, d := range docs {
+		batch = append(batch, toDoc(d))
+	}
 	// Read the DB first, then clear the index, so a transient DB error doesn't leave
 	// the index empty.
 	if err := s.index.Reset(); err != nil {
 		return err
 	}
-	for _, d := range docs {
-		if err := s.index.Put(toDoc(d)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.index.PutBatch(batch)
 }

@@ -14,8 +14,9 @@ import (
 
 // Index wraps a persistent Bleve index.
 type Index struct {
-	idx  bleve.Index
-	path string
+	idx    bleve.Index
+	path   string
+	closed bool
 }
 
 // Open opens the index at path, creating it (with our mapping) if it does not exist.
@@ -31,7 +32,15 @@ func Open(path string) (*Index, error) {
 	return &Index{idx: idx, path: path}, nil
 }
 
-func (i *Index) Close() error { return i.idx.Close() }
+// Close closes the underlying Bleve index. It is idempotent: a second call is a no-op,
+// since Bleve's scorch backend panics on a double close.
+func (i *Index) Close() error {
+	if i.closed {
+		return nil
+	}
+	i.closed = true
+	return i.idx.Close()
+}
 
 // Reset drops the entire index and recreates it empty with the current mapping. It
 // clears any stale entries (e.g. documents deleted from the DB, or leftovers from an
@@ -55,6 +64,24 @@ func (i *Index) Reset() error {
 func (i *Index) Put(d Doc) error {
 	if err := i.idx.Index(d.ID, d); err != nil {
 		return fmt.Errorf("index doc %s: %w", d.ID, err)
+	}
+	return nil
+}
+
+// PutBatch indexes (or replaces) many documents in a single Bleve batch — one
+// store-to-index flush instead of one per document. An empty slice is a no-op.
+func (i *Index) PutBatch(docs []Doc) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	batch := i.idx.NewBatch()
+	for _, d := range docs {
+		if err := batch.Index(d.ID, d); err != nil {
+			return fmt.Errorf("batch index doc %s: %w", d.ID, err)
+		}
+	}
+	if err := i.idx.Batch(batch); err != nil {
+		return fmt.Errorf("flush index batch: %w", err)
 	}
 	return nil
 }
@@ -124,6 +151,10 @@ func (i *Index) Search(q Query) ([]Result, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 20
+	}
+	const maxLimit = 100
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	req := bleve.NewSearchRequestOptions(boolQ, limit, 0, false)
 	req.Fields = []string{"title", "overview", "project_id"}

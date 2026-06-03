@@ -9,7 +9,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -18,6 +17,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/tenant"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
+	tenantcfg "github.com/Fishwaldo/mcp-docstore/internal/tenant"
 	_ "github.com/go-sql-driver/mysql" // registers "mysql" driver
 	_ "github.com/jackc/pgx/v5/stdlib" // registers "pgx" driver
 	_ "modernc.org/sqlite"             // registers "sqlite" driver
@@ -74,12 +74,34 @@ func Open(driver, dsn string, opts ...Option) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	if driver == "sqlite" {
+		if err := assertForeignKeysEnabled(db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
 	drv := entsql.OpenDB(entD, db)
 	s := &Store{client: ent.NewClient(ent.Driver(drv)), retention: 10}
 	for _, o := range opts {
 		o(s)
 	}
 	return s, nil
+}
+
+// assertForeignKeysEnabled fails fast when the sqlite connection has foreign keys off.
+// Cascade deletes (DeleteProject removing documents/snapshots/shares) depend on FK
+// enforcement; without it the cascade silently orphans rows. The pragma is per-connection
+// in sqlite, so it must be set in the DSN (e.g. _pragma=foreign_keys(1)). mysql/postgres
+// enforce FKs natively and are not checked here.
+func assertForeignKeysEnabled(db *sql.DB) error {
+	var on int
+	if err := db.QueryRow("PRAGMA foreign_keys;").Scan(&on); err != nil {
+		return fmt.Errorf("check sqlite foreign_keys pragma: %w", err)
+	}
+	if on == 0 {
+		return fmt.Errorf("%w: sqlite foreign keys are disabled; add _pragma=foreign_keys(1) to the DSN so cascade deletes don't orphan rows", ErrInvalid)
+	}
+	return nil
 }
 
 // Migrate runs the ent schema migration against the database.
@@ -115,32 +137,67 @@ func (s *Store) EnsureTenant(ctx context.Context, key, name string) (*ent.Tenant
 // (RoleAdmin when true, RoleMember otherwise) on both create and update, so role is
 // always driven by config. external_subject is globally unique, so a subject seen
 // under a different tenant is rejected with ErrInvalid: a user belongs to exactly one tenant.
+//
+// A concurrent first login for the same subject can have two requests both miss the initial
+// query and both Create; the second Create then violates the unique external_subject index.
+// That loser re-queries the now-existing row and reconciles it like any returning user, so
+// the request still succeeds with the same single-tenant binding.
 func (s *Store) UpsertUser(ctx context.Context, tenantID uuid.UUID, subject, email string, isAdmin bool) (*ent.User, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	if subject == "" {
+		return nil, fmt.Errorf("%w: empty subject", ErrInvalid)
+	}
+	email = tenantcfg.Normalize(email)
 	role := user.RoleMember
 	if isAdmin {
 		role = user.RoleAdmin
 	}
-	existing, err := s.client.User.Query().
-		Where(user.ExternalSubjectEQ(subject)).
-		WithTenant().
-		Only(ctx)
+
+	existing, err := s.findUserBySubject(ctx, subject)
 	if err == nil {
-		if existing.Edges.Tenant.ID != tenantID {
-			return nil, fmt.Errorf("%w: subject already bound to another tenant", ErrInvalid)
-		}
-		if existing.Email != email || existing.Role != role {
-			return existing.Update().SetEmail(email).SetRole(role).Save(ctx)
-		}
-		return existing, nil
+		return s.reconcileUser(ctx, existing, tenantID, email, role)
 	}
 	if !ent.IsNotFound(err) {
 		return nil, err
 	}
-	return s.client.User.Create().
+
+	created, err := s.client.User.Create().
 		SetExternalSubject(subject).
 		SetEmail(email).
 		SetTenantID(tenantID).
 		SetRole(role).
 		Save(ctx)
+	if err == nil {
+		return created, nil
+	}
+	if !ent.IsConstraintError(err) {
+		return nil, err
+	}
+	// Lost a first-login race: the row now exists. Re-query and reconcile it.
+	existing, qerr := s.findUserBySubject(ctx, subject)
+	if qerr != nil {
+		return nil, err // surface the original constraint error if the row is unexpectedly gone
+	}
+	return s.reconcileUser(ctx, existing, tenantID, email, role)
+}
+
+// findUserBySubject loads the user with the given external_subject, eager-loading its
+// tenant edge so reconcileUser can enforce the single-tenant binding.
+func (s *Store) findUserBySubject(ctx context.Context, subject string) (*ent.User, error) {
+	return s.client.User.Query().
+		Where(user.ExternalSubjectEQ(subject)).
+		WithTenant().
+		Only(ctx)
+}
+
+// reconcileUser enforces that an existing user stays bound to its original tenant and
+// refreshes its email/role from config. It rejects a subject already bound to a different
+// tenant with ErrInvalid (external_subject is globally unique → single-tenant binding).
+func (s *Store) reconcileUser(ctx context.Context, existing *ent.User, tenantID uuid.UUID, email string, role user.Role) (*ent.User, error) {
+	if existing.Edges.Tenant.ID != tenantID {
+		return nil, fmt.Errorf("%w: subject already bound to another tenant", ErrInvalid)
+	}
+	if existing.Email != email || existing.Role != role {
+		return existing.Update().SetEmail(email).SetRole(role).Save(ctx)
+	}
+	return existing, nil
 }

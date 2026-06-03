@@ -75,3 +75,16 @@ func TestResolverIsAdmin(t *testing.T) {
 	require.False(t, r.IsAdmin("acme", "bob@acme.com"))
 	require.False(t, r.IsAdmin("globex", "alice@acme.com")) // unknown tenant
 }
+
+func TestNormalize(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"  Foo@Bar.COM ", "foo@bar.com"},
+		{"alice@acme.com", "alice@acme.com"},
+		{"\tMixedCase@Example.ORG\n", "mixedcase@example.org"},
+		{"", ""},
+		{"   ", ""},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, Normalize(c.in), "Normalize(%q)", c.in)
+	}
+}
