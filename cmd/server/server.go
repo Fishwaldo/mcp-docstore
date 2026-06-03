@@ -10,8 +10,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"time"
 
@@ -58,6 +60,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	logger = newLogger(os.Stderr, cfg.Logging)
 
 	st, err := store.Open(cfg.Database.Driver, cfg.Database.DSN, store.WithSnapshotRetention(cfg.SnapshotRetention))
 	if err != nil {
@@ -118,7 +121,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	mcpServer := imcp.NewMCPServer(svc, auth.IdentityFromRequest, logger, icons, resolveVersion())
 
 	bearer := mcpauth.RequireBearerToken(
-		auth.NewResourceVerifier(oidcVerifier, resolver, st),
+		auth.NewResourceVerifier(oidcVerifier, resolver, st, logger, cfg.Logging.ClientIPHeader),
 		&mcpauth.RequireBearerTokenOptions{ResourceMetadataURL: cfg.PublicURL + metadataPath},
 	)
 	streamable := sdkmcp.NewStreamableHTTPHandler(
@@ -134,7 +137,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	}))
 	mux.Handle("/icon-512.png", servePNG(assets.Icon512PNG))
 	mux.Handle("/icon-96.png", servePNG(assets.Icon96PNG))
-	mcpHandler := logRequests(logger, bearer(streamable))
+	mcpHandler := logRequests(logger, cfg.Logging.ClientIPHeader, bearer(streamable))
 	mux.Handle("/", maxBytes(cfg.MaxRequestBytes, mcpHandler))
 
 	// ReadTimeout / WriteTimeout are deliberately NOT set: Streamable HTTP holds
@@ -184,11 +187,61 @@ func maxBytes(limit int64, next http.Handler) http.Handler {
 	})
 }
 
-// logRequests is minimal slog request logging. It never logs the Authorization header.
-func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
+// statusRecorder wraps http.ResponseWriter to capture the response status code. It exposes
+// Unwrap so http.ResponseController (used by the SDK's Streamable HTTP handler to Flush SSE
+// streams) reaches the underlying writer.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// newLogger builds the slog logger from config: level (debug|info|warn|error) and format
+// (json|text). config.Validate has already rejected invalid values, so unknown values fall
+// back to info/json defensively.
+func newLogger(w io.Writer, c config.Logging) *slog.Logger {
+	var level slog.Level
+	switch c.Level {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	if c.Format == "text" {
+		return slog.New(slog.NewTextHandler(w, opts))
+	}
+	return slog.New(slog.NewJSONHandler(w, opts))
+}
+
+// logRequests logs one transport event per HTTP request: method, path, status, client IP,
+// and latency. It never logs the Authorization header. Successful requests log at DEBUG; a
+// 4xx/5xx (including pre-auth 401s the MCP layer never sees) logs at WARN.
+func logRequests(logger *slog.Logger, ipHeader string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.Info("request", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start).String())
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		level := slog.LevelDebug
+		if rec.status >= 400 {
+			level = slog.LevelWarn
+		}
+		logger.LogAttrs(r.Context(), level, "http_request",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", rec.status),
+			slog.String("client_ip", auth.ClientIP(r, ipHeader)),
+			slog.Int64("dur_ms", time.Since(start).Milliseconds()),
+		)
 	})
 }

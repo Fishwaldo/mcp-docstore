@@ -410,3 +410,48 @@ tenants:
 		})
 	}
 }
+
+func TestLoggingDefaults(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "info", cfg.Logging.Level)
+	require.Equal(t, "json", cfg.Logging.Format)
+	require.Equal(t, "", cfg.Logging.ClientIPHeader)
+}
+
+func TestLoggingParsed(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+logging:
+  level: debug
+  format: text
+  client_ip_header: "X-Forwarded-For"
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "debug", cfg.Logging.Level)
+	require.Equal(t, "text", cfg.Logging.Format)
+	require.Equal(t, "X-Forwarded-For", cfg.Logging.ClientIPHeader)
+}
+
+func TestLoggingInvalid(t *testing.T) {
+	base := `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`
+	_, err := Load(writeTemp(t, base+"logging: {level: loud}\n"))
+	require.ErrorContains(t, err, "logging.level")
+	_, err = Load(writeTemp(t, base+"logging: {format: xml}\n"))
+	require.ErrorContains(t, err, "logging.format")
+}

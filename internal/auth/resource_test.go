@@ -5,6 +5,7 @@ package auth
 
 import (
 	"context"
+	"net/http"
 	"strconv"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Fishwaldo/mcp-docstore/internal/config"
+	"github.com/Fishwaldo/mcp-docstore/internal/logtest"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 	"github.com/Fishwaldo/mcp-docstore/internal/tenant"
 )
@@ -38,23 +40,35 @@ func TestResourceVerifierResolvesIdentity(t *testing.T) {
 	})
 	require.NoError(t, err)
 	st := newAuthStore(t)
-	verifier := NewResourceVerifier(ov, res, st)
+	logger, buf := logtest.New()
+	verifier := NewResourceVerifier(ov, res, st, logger, "")
 
 	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 	tok := sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s1","exp":` + exp +
 		`,"email":"alice@acme.com","groups":["eng"]}`)
-	ti, err := verifier(ctx, tok, nil)
+	ti, err := verifier(ctx, tok, &http.Request{RemoteAddr: "203.0.113.5:5000"})
 	require.NoError(t, err)
 	require.NotEmpty(t, ti.UserID)
 	require.False(t, ti.Expiration.IsZero())
+	require.Equal(t, "203.0.113.5", ClientIPFromTokenInfo(ti))
 
 	id, ok := IdentityFromTokenInfo(ti)
 	require.True(t, ok)
 	require.True(t, id.IsAdmin)
 	require.Equal(t, []string{"eng"}, id.Groups)
 
-	// Unknown domain -> ErrInvalidToken.
+	okRec := logtest.Find(buf, "auth ok")
+	require.NotNil(t, okRec)
+	require.Equal(t, "DEBUG", okRec["level"])
+	require.Equal(t, "203.0.113.5", okRec["client_ip"])
+
+	// Unknown domain -> ErrInvalidToken + a WARN auth-failed event.
 	tok2 := sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s2","exp":` + exp + `,"email":"x@nope.com"}`)
-	_, err = verifier(ctx, tok2, nil)
+	_, err = verifier(ctx, tok2, &http.Request{RemoteAddr: "203.0.113.6:6000"})
 	require.ErrorIs(t, err, mcpauth.ErrInvalidToken)
+
+	failRec := logtest.Find(buf, "auth failed")
+	require.NotNil(t, failRec)
+	require.Equal(t, "WARN", failRec["level"])
+	require.Equal(t, "email_not_onboarded", failRec["reason"])
 }

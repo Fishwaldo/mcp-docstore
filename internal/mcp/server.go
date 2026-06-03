@@ -73,6 +73,7 @@ func NewMCPServer(svc *Service, identityFor identityFunc, log *slog.Logger, icon
 		&sdk.Implementation{Name: "mcp-docstore", Title: "MCP DocStore", Version: version, Icons: icons},
 		&sdk.ServerOptions{Instructions: serverInstructions, Logger: log},
 	)
+	srv.AddReceivingMiddleware(loggingMiddleware(log))
 	r := &registrar{svc: svc, identityFor: identityFor, log: log}
 	r.registerProjectTools(srv)
 	r.registerDocumentTools(srv)

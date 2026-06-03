@@ -5,6 +5,11 @@ bleve_index_path: "./data/index.bleve"
 session_timeout: 2m                        # reap idle Streamable HTTP sessions after this; must be positive
 max_request_bytes: 4194304                 # cap request body bytes on the MCP endpoint (4 MiB); oversized requests are rejected
 
+logging:
+  level: info                              # debug | info | warn | error
+  format: json                             # json | text
+  client_ip_header: ""                     # e.g. "X-Forwarded-For" behind a proxy; empty = use RemoteAddr
+
 database:
   driver: sqlite                          # sqlite | mysql | postgres
   # sqlite REQUIRES _pragma=foreign_keys(1) in the DSN: foreign keys are off by default,
