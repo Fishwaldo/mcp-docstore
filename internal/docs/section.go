@@ -108,6 +108,11 @@ func ReplaceSection(source, heading, newContent string) (string, error) {
 	if !strings.HasSuffix(newContent, "\n") {
 		b.WriteByte('\n')
 	}
+	// Preserve the blank line that separated this section from the following
+	// block: section editing replaces the section's content, not the separator.
+	if end < len(lines) && end-1 >= start && lines[end-1] == "" && !strings.HasSuffix(b.String(), "\n\n") {
+		b.WriteByte('\n')
+	}
 	for i := end; i < len(lines); i++ {
 		b.WriteString(lines[i])
 		if i < len(lines)-1 {

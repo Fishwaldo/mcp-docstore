@@ -163,3 +163,25 @@ func TestHeadingNotFoundListsSeenHeadings(t *testing.T) {
 		t.Fatalf("seen = %q want %q", got, "Alpha,Beta")
 	}
 }
+
+func TestReplaceSectionPreservesTrailingBlankLine(t *testing.T) {
+	src := "# One\nalpha\n\n# Two\nbeta\n"
+	got, err := ReplaceSection(src, "One", "alpha2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "alpha2\n\n# Two") {
+		t.Fatalf("blank line before next heading collapsed: %q", got)
+	}
+}
+
+func TestReplaceSectionFinalSectionNoSpuriousBlankLine(t *testing.T) {
+	src := "# One\nalpha\n"
+	got, err := ReplaceSection(src, "One", "alpha2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "# One\nalpha2\n" {
+		t.Fatalf("final-section replace corrupted output: %q want %q", got, "# One\nalpha2\n")
+	}
+}
