@@ -24,6 +24,16 @@ type NewDocument struct {
 	Comment  string
 }
 
+// RestoreScope selects how much of a snapshot a restore reapplies. Body-only is the
+// default so recovering older content never silently reverts live metadata such as a
+// status: tag; full also reapplies the snapshot's overview and tags.
+type RestoreScope string
+
+const (
+	RestoreScopeBody RestoreScope = "body"
+	RestoreScopeFull RestoreScope = "full"
+)
+
 // CreateDocument creates a new document under the given project.
 // Validates that title is non-empty and that the caller has WriteAccess on the project.
 // tenant_id is denormalized from id.TenantID; version defaults to 1 (ent schema default).
@@ -265,22 +275,27 @@ func (s *Store) GetSnapshot(ctx context.Context, id Identity, documentID uuid.UU
 // RestoreSnapshot makes version restoreVersion current by calling EditDocument with its
 // content at baseVersion. This produces a new versioned edit (snapshotted + concurrency-checked).
 // If comment is empty, a default "restored from version N" comment is used.
-func (s *Store) RestoreSnapshot(ctx context.Context, id Identity, documentID uuid.UUID, restoreVersion, baseVersion int, comment string) (*ent.Document, error) {
+// scope controls what fields are restored: RestoreScopeBody (default, empty string) restores
+// only the body and preserves live overview and tags; RestoreScopeFull restores all fields.
+func (s *Store) RestoreSnapshot(ctx context.Context, id Identity, documentID uuid.UUID, restoreVersion, baseVersion int, scope RestoreScope, comment string) (*ent.Document, error) {
 	snap, err := s.GetSnapshot(ctx, id, documentID, restoreVersion)
 	if err != nil {
 		return nil, err
 	}
-	tags := snap.Tags
 	if comment == "" {
 		comment = fmt.Sprintf("restored from version %d", restoreVersion)
 	}
-	return s.EditDocument(ctx, id, documentID, EditDocument{
+	edit := EditDocument{
 		BaseVersion: baseVersion,
-		Overview:    &snap.Overview,
 		Body:        &snap.Body,
-		Tags:        &tags,
 		Comment:     comment,
-	})
+	}
+	if scope == RestoreScopeFull {
+		tags := snap.Tags
+		edit.Overview = &snap.Overview
+		edit.Tags = &tags
+	}
+	return s.EditDocument(ctx, id, documentID, edit)
 }
 
 // DeleteDocument permanently removes a document. Requires WriteAccess.

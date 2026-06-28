@@ -157,7 +157,7 @@ func TestGetAndRestoreSnapshot(t *testing.T) {
 	require.Equal(t, "v1", snap.Body)
 
 	// Restore v1 as a new edit; current is v2 so base_version must be 2.
-	restored, err := s.RestoreSnapshot(ctx, id, d.ID, 1, 2, "revert to v1")
+	restored, err := s.RestoreSnapshot(ctx, id, d.ID, 1, 2, RestoreScopeFull, "revert to v1")
 	require.NoError(t, err)
 	require.Equal(t, 3, restored.Version)
 	require.Equal(t, "v1", restored.Body)
@@ -242,4 +242,46 @@ func TestEditLoadedRequiresWriteAccess(t *testing.T) {
 	body := "x"
 	_, err = s.EditLoaded(ctx, reader, loaded, EditDocument{BaseVersion: 1, Body: &body})
 	require.ErrorIs(t, err, ErrPermission)
+}
+
+func TestRestoreSnapshotBodyOnlyPreservesTags(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+	p, err := s.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+	d, err := s.CreateDocument(ctx, id, p.ID, NewDocument{
+		Title: "T", Overview: "ov1", Body: "body1", Tags: []string{"status:not-started"},
+	})
+	require.NoError(t, err)
+	body2, ov2, tags2 := "body2", "ov2", []string{"status:in-progress"}
+	d2, err := s.EditDocument(ctx, id, d.ID, EditDocument{BaseVersion: d.Version, Body: &body2, Overview: &ov2, Tags: &tags2, Comment: "v2"})
+	require.NoError(t, err)
+	got, err := s.RestoreSnapshot(ctx, id, d.ID, d.Version, d2.Version, RestoreScopeBody, "restore")
+	require.NoError(t, err)
+	if got.Body != "body1" {
+		t.Errorf("body = %q want body1", got.Body)
+	}
+	if got.Overview != "ov2" {
+		t.Errorf("overview = %q want ov2 (preserved)", got.Overview)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "status:in-progress" {
+		t.Errorf("tags = %v want [status:in-progress] (preserved)", got.Tags)
+	}
+}
+
+func TestRestoreSnapshotFullRestoresAll(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+	p, err := s.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+	d, err := s.CreateDocument(ctx, id, p.ID, NewDocument{Title: "T", Overview: "ov1", Body: "body1", Tags: []string{"status:not-started"}})
+	require.NoError(t, err)
+	body2, ov2, tags2 := "body2", "ov2", []string{"status:in-progress"}
+	d2, err := s.EditDocument(ctx, id, d.ID, EditDocument{BaseVersion: d.Version, Body: &body2, Overview: &ov2, Tags: &tags2, Comment: "v2"})
+	require.NoError(t, err)
+	got, err := s.RestoreSnapshot(ctx, id, d.ID, d.Version, d2.Version, RestoreScopeFull, "restore")
+	require.NoError(t, err)
+	if got.Body != "body1" || got.Overview != "ov1" || got.Tags[0] != "status:not-started" {
+		t.Errorf("full restore did not revert all fields: body=%q ov=%q tags=%v", got.Body, got.Overview, got.Tags)
+	}
 }
