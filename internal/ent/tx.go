@@ -22,6 +22,8 @@ type Tx struct {
 	ProjectGroupShare *ProjectGroupShareClient
 	// ProjectShare is the client for interacting with the ProjectShare builders.
 	ProjectShare *ProjectShareClient
+	// Session is the client for interacting with the Session builders.
+	Session *SessionClient
 	// Tenant is the client for interacting with the Tenant builders.
 	Tenant *TenantClient
 	// User is the client for interacting with the User builders.
@@ -162,6 +164,7 @@ func (tx *Tx) init() {
 	tx.Project = NewProjectClient(tx.config)
 	tx.ProjectGroupShare = NewProjectGroupShareClient(tx.config)
 	tx.ProjectShare = NewProjectShareClient(tx.config)
+	tx.Session = NewSessionClient(tx.config)
 	tx.Tenant = NewTenantClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }

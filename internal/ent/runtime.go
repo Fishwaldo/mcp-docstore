@@ -11,6 +11,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/projectgroupshare"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/projectshare"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/schema"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/session"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/tenant"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
 	"github.com/google/uuid"
@@ -121,6 +122,31 @@ func init() {
 	projectshareDescID := projectshareMixinFields0[0].Descriptor()
 	// projectshare.DefaultID holds the default value on creation for the id field.
 	projectshare.DefaultID = projectshareDescID.Default.(func() uuid.UUID)
+	sessionMixin := schema.Session{}.Mixin()
+	sessionMixinFields0 := sessionMixin[0].Fields()
+	_ = sessionMixinFields0
+	sessionFields := schema.Session{}.Fields()
+	_ = sessionFields
+	// sessionDescCreatedAt is the schema descriptor for created_at field.
+	sessionDescCreatedAt := sessionMixinFields0[1].Descriptor()
+	// session.DefaultCreatedAt holds the default value on creation for the created_at field.
+	session.DefaultCreatedAt = sessionDescCreatedAt.Default.(func() time.Time)
+	// sessionDescTokenHash is the schema descriptor for token_hash field.
+	sessionDescTokenHash := sessionFields[0].Descriptor()
+	// session.TokenHashValidator is a validator for the "token_hash" field. It is called by the builders before save.
+	session.TokenHashValidator = sessionDescTokenHash.Validators[0].(func(string) error)
+	// sessionDescSubject is the schema descriptor for subject field.
+	sessionDescSubject := sessionFields[1].Descriptor()
+	// session.SubjectValidator is a validator for the "subject" field. It is called by the builders before save.
+	session.SubjectValidator = sessionDescSubject.Validators[0].(func(string) error)
+	// sessionDescEmail is the schema descriptor for email field.
+	sessionDescEmail := sessionFields[2].Descriptor()
+	// session.EmailValidator is a validator for the "email" field. It is called by the builders before save.
+	session.EmailValidator = sessionDescEmail.Validators[0].(func(string) error)
+	// sessionDescID is the schema descriptor for id field.
+	sessionDescID := sessionMixinFields0[0].Descriptor()
+	// session.DefaultID holds the default value on creation for the id field.
+	session.DefaultID = sessionDescID.Default.(func() uuid.UUID)
 	tenantMixin := schema.Tenant{}.Mixin()
 	tenantMixinFields0 := tenantMixin[0].Fields()
 	_ = tenantMixinFields0
