@@ -14,7 +14,6 @@ import (
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 	"github.com/Fishwaldo/mcp-docstore/internal/tenant"
 )
@@ -46,37 +45,21 @@ func NewResourceVerifier(v Verifier, resolver *tenant.Resolver, st *store.Store,
 			log.WarnContext(ctx, "auth failed", "reason", "token_invalid", "client_ip", ip)
 			return nil, fmt.Errorf("%w: %v", mcpauth.ErrInvalidToken, err)
 		}
-		key, ok := resolver.Resolve(claims.Email)
-		if !ok {
-			log.WarnContext(ctx, "auth failed", "reason", "email_not_onboarded", "email", claims.Email, "client_ip", ip)
-			return nil, fmt.Errorf("%w: email not onboarded", mcpauth.ErrInvalidToken)
-		}
-		ten, err := st.TenantByKey(ctx, key)
+		id, err := ResolveIdentity(ctx, resolver, st, claims)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				log.WarnContext(ctx, "auth failed", "reason", "tenant_not_provisioned", "email", claims.Email, "client_ip", ip)
-				return nil, fmt.Errorf("%w: tenant not provisioned", mcpauth.ErrInvalidToken)
+			var ie *IdentityError
+			if errors.As(err, &ie) {
+				if ie.Err != nil {
+					log.ErrorContext(ctx, "auth error", "reason", ie.Reason, "email", claims.Email, "client_ip", ip, "error", ie.Err)
+					return nil, ie.Err // infra fault -> 500 via SDK middleware
+				}
+				log.WarnContext(ctx, "auth failed", "reason", ie.Reason, "email", claims.Email, "client_ip", ip)
+				return nil, fmt.Errorf("%w: %s", mcpauth.ErrInvalidToken, ie.Reason)
 			}
-			log.ErrorContext(ctx, "auth error", "reason", "db_error", "email", claims.Email, "client_ip", ip, "error", err)
-			return nil, err // DB fault -> 500 via the SDK middleware
-		}
-		usr, err := st.UpsertUser(ctx, ten.ID, claims.Subject, claims.Email, resolver.IsAdmin(key, claims.Email))
-		if err != nil {
-			if errors.Is(err, store.ErrInvalid) {
-				log.WarnContext(ctx, "auth failed", "reason", "identity_rejected", "email", claims.Email, "client_ip", ip)
-				return nil, fmt.Errorf("%w: identity rejected", mcpauth.ErrInvalidToken)
-			}
-			log.ErrorContext(ctx, "auth error", "reason", "db_error", "email", claims.Email, "client_ip", ip, "error", err)
 			return nil, err
 		}
-		id := store.Identity{
-			TenantID: ten.ID,
-			UserID:   usr.ID,
-			Groups:   claims.Groups,
-			IsAdmin:  usr.Role == user.RoleAdmin,
-		}
-		log.DebugContext(ctx, "auth ok", "tenant", key, "user", usr.ID.String(), "admin", id.IsAdmin, "client_ip", ip)
-		return NewTokenInfo(usr.ID.String(), claims.Expiry, id, ip), nil
+		log.DebugContext(ctx, "auth ok", "user", id.UserID.String(), "admin", id.IsAdmin, "client_ip", ip)
+		return NewTokenInfo(id.UserID.String(), claims.Expiry, id, ip), nil
 	}
 }
 
