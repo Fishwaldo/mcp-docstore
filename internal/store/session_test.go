@@ -95,3 +95,28 @@ func TestDeleteSessionByTokenHashIdempotent(t *testing.T) {
 	// deleting an absent session is not an error
 	require.NoError(t, s.DeleteSessionByTokenHash(ctx, "hash-3"))
 }
+
+func TestDeleteExpiredSessions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	expired := newTestSessionIn("expired", now)
+	expired.ExpiresAt = now.Add(-time.Hour) // already past
+	_, err := s.CreateSession(ctx, expired)
+	require.NoError(t, err)
+
+	live := newTestSessionIn("live", now)
+	live.ExpiresAt = now.Add(time.Hour) // still valid
+	_, err = s.CreateSession(ctx, live)
+	require.NoError(t, err)
+
+	n, err := s.DeleteExpiredSessions(ctx, now)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+
+	_, err = s.SessionByTokenHash(ctx, "expired")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = s.SessionByTokenHash(ctx, "live")
+	require.NoError(t, err)
+}

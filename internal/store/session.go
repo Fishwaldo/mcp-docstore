@@ -70,3 +70,10 @@ func (s *Store) DeleteSessionByTokenHash(ctx context.Context, tokenHash string) 
 	_, err := s.client.Session.Delete().Where(session.TokenHashEQ(tokenHash)).Exec(ctx)
 	return err
 }
+
+// DeleteExpiredSessions removes every session whose expires_at is at or before now,
+// returning the number deleted. The sweeper passes the current time; tests pass a fixed
+// time for determinism.
+func (s *Store) DeleteExpiredSessions(ctx context.Context, now time.Time) (int, error) {
+	return s.client.Session.Delete().Where(session.ExpiresAtLTE(now)).Exec(ctx)
+}
