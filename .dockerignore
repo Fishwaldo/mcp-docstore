@@ -8,3 +8,5 @@ Dockerfile
 .dockerignore
 backup-pre-squash
 data
+web/node_modules
+**/node_modules
