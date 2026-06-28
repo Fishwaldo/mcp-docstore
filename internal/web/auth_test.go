@@ -151,5 +151,5 @@ func TestLogoutDeletesSessionAndClearsCookie(t *testing.T) {
 	require.Equal(t, http.StatusFound, rec.Code)
 	_, err := st.SessionByTokenHash(context.Background(), hashToken(sessionCookie.Value))
 	require.ErrorIs(t, err, store.ErrNotFound)
-	require.True(t, strings.Contains(findCookie(t, rec, "ds_session").Value, "")) // cleared
+	require.Empty(t, findCookie(t, rec, "ds_session").Value)
 }

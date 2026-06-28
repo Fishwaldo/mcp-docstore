@@ -18,16 +18,6 @@ import (
 
 const oauthCookieName = "ds_oauth"
 
-// csrfCookieName is the cookie that carries the CSRF token. Task 5 (csrf.go) will finalize
-// CSRF handling; this const is a temporary stub so Task 3 builds standalone.
-const csrfCookieName = "ds_csrf"
-
-// issueCSRFCookie writes a temporary CSRF cookie. Task 5 replaces this stub with the real
-// double-submit implementation in csrf.go.
-func issueCSRFCookie(w http.ResponseWriter, secure bool) {
-	setCookie(w, csrfCookieName, uuid.NewString(), secure, 12*time.Hour)
-}
-
 // HandleLogin starts the Authorization Code + PKCE flow: it generates a state and PKCE
 // verifier, stores them in a short-lived httpOnly cookie, and redirects to the provider.
 func (s *Server) HandleLogin(w http.ResponseWriter, r *http.Request) {
