@@ -4,6 +4,7 @@
 package docs
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -145,5 +146,20 @@ func TestSectionMatchesPlainAndPunctuated(t *testing.T) {
 		if _, err := GetSection(src, h); err != nil {
 			t.Errorf("heading %q should match, got: %v", h, err)
 		}
+	}
+}
+
+func TestHeadingNotFoundListsSeenHeadings(t *testing.T) {
+	src := "## Alpha\na\n## Beta\nb\n"
+	_, err := GetSection(src, "Gamma")
+	if !errors.Is(err, ErrHeadingNotFound) {
+		t.Fatalf("want errors.Is ErrHeadingNotFound, got %v", err)
+	}
+	var hnf *HeadingNotFoundError
+	if !errors.As(err, &hnf) {
+		t.Fatalf("want *HeadingNotFoundError, got %T", err)
+	}
+	if got := strings.Join(hnf.Seen, ","); got != "Alpha,Beta" {
+		t.Fatalf("seen = %q want %q", got, "Alpha,Beta")
 	}
 }

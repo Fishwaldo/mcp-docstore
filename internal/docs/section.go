@@ -6,6 +6,7 @@ package docs
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -15,6 +16,21 @@ import (
 
 // ErrHeadingNotFound is returned when no heading matches the requested name.
 var ErrHeadingNotFound = errors.New("heading not found")
+
+// HeadingNotFoundError reports that the requested heading was absent and carries
+// the headings the parser actually saw, so callers can surface the available
+// options (and a UI heading picker has the data it needs). It satisfies
+// errors.Is(err, ErrHeadingNotFound) so existing sentinel checks keep working.
+type HeadingNotFoundError struct {
+	Requested string
+	Seen      []string
+}
+
+func (e *HeadingNotFoundError) Error() string {
+	return fmt.Sprintf("heading not found: %q (available: %s)", e.Requested, strings.Join(e.Seen, ", "))
+}
+
+func (e *HeadingNotFoundError) Is(target error) bool { return target == ErrHeadingNotFound }
 
 // normalizeHeading strips a leading ATX marker run (one to six '#') plus its
 // following space, so a caller may pass either the raw markdown form ("## Foo")
@@ -53,7 +69,11 @@ func sectionRange(source, heading string) (lines []string, headingLine, start, e
 		}
 	}
 	if target == -1 {
-		return nil, 0, 0, 0, ErrHeadingNotFound
+		seen := make([]string, len(headings))
+		for i, h := range headings {
+			seen[i] = h.text
+		}
+		return nil, 0, 0, 0, &HeadingNotFoundError{Requested: heading, Seen: seen}
 	}
 
 	headingLine = headings[target].line
