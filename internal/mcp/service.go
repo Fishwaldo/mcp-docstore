@@ -208,8 +208,8 @@ func (s *Service) DeleteSection(ctx context.Context, id store.Identity, docID uu
 	return s.editLoadedAndIndex(ctx, id, d, store.EditDocument{BaseVersion: base, Body: &newBody, Comment: comment})
 }
 
-func (s *Service) RestoreSnapshot(ctx context.Context, id store.Identity, docID uuid.UUID, version, base int, comment string) (*ent.Document, error) {
-	d, err := s.store.RestoreSnapshot(ctx, id, docID, version, base, comment)
+func (s *Service) RestoreSnapshot(ctx context.Context, id store.Identity, docID uuid.UUID, version, base int, scope store.RestoreScope, comment string) (*ent.Document, error) {
+	d, err := s.store.RestoreSnapshot(ctx, id, docID, version, base, scope, comment)
 	if err != nil {
 		return nil, err
 	}

@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/Fishwaldo/mcp-docstore/internal/store"
 )
 
 type deleteDocumentIn struct {
@@ -23,6 +25,7 @@ type restoreSnapshotIn struct {
 	DocumentID  string `json:"document_id" jsonschema:"the document id"`
 	Version     int    `json:"version" jsonschema:"the snapshot version to restore"`
 	BaseVersion int    `json:"base_version" jsonschema:"current version you read; rejected if stale"`
+	Scope       string `json:"scope,omitempty" jsonschema:"what to restore: body (default) restores only the body and preserves the live overview and tags; full also restores the snapshot's overview and tags"`
 	Comment     string `json:"comment,omitempty" jsonschema:"optional change comment"`
 	Confirm     bool   `json:"confirm,omitempty" jsonschema:"set true to confirm when the client cannot prompt interactively"`
 }
@@ -87,7 +90,12 @@ func (r *registrar) registerDestructiveTools(srv *sdk.Server) {
 			return nil, deletedOut{Deleted: true}, nil
 		})
 
-	sdk.AddTool(srv, &sdk.Tool{Name: "restore_snapshot", Description: "Restore a previous version of a document over its current content. Destructive; confirmation required.", Annotations: destructiveAnno()},
+	sdk.AddTool(srv, &sdk.Tool{
+		Name:        "restore_snapshot",
+		Description: "Restore a previous version of a document. By default (scope=body) only the body is restored and the live overview and tags are preserved; pass scope=full to also restore the snapshot's overview and tags. Destructive; confirmation required.",
+		Annotations: destructiveAnno(),
+		InputSchema: inputSchema[restoreSnapshotIn](map[string][]any{"scope": {"body", "full"}}),
+	},
 		func(ctx context.Context, req *sdk.CallToolRequest, in restoreSnapshotIn) (*sdk.CallToolResult, documentOut, error) {
 			id, err := r.ident(req)
 			if err != nil {
@@ -100,14 +108,18 @@ func (r *registrar) registerDestructiveTools(srv *sdk.Server) {
 			if err := r.svc.EnsureDocumentWritable(ctx, id, docID); err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
+			scope := store.RestoreScopeBody
+			if in.Scope == string(store.RestoreScopeFull) {
+				scope = store.RestoreScopeFull
+			}
 			snap, err := r.svc.GetSnapshot(ctx, id, docID, in.Version)
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
-			if err := confirm(ctx, req, fmt.Sprintf("Restore version %d (%q) over the current content?", in.Version, snap.Comment), in.Confirm); err != nil {
+			if err := confirm(ctx, req, fmt.Sprintf("Restore version %d (%q) over the current content (scope=%s)?", in.Version, snap.Comment, scope), in.Confirm); err != nil {
 				return nil, documentOut{}, err
 			}
-			d, err := r.svc.RestoreSnapshot(ctx, id, docID, in.Version, in.BaseVersion, in.Comment)
+			d, err := r.svc.RestoreSnapshot(ctx, id, docID, in.Version, in.BaseVersion, scope, in.Comment)
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
