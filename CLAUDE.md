@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Multi-tenant **MCP server** (Go) for persistent documents: AI agents save/find/edit docs that survive across sessions. OAuth resource server, backed by SQL via [ent](https://entgo.io), full-text search via Bleve. Module: `github.com/Fishwaldo/mcp-docstore`. Built on the [Go MCP SDK](https://github.com/modelcontextprotocol/go-sdk) (`v1.6.1`).
+Multi-tenant **MCP server** (Go) for persistent documents: AI agents save/find/edit docs that survive across sessions. OAuth resource server, backed by SQL via [ent](https://entgo.io), full-text search via Bleve. Module: `github.com/Fishwaldo/mcp-docstore`. Built on the [Go MCP SDK](https://github.com/modelcontextprotocol/go-sdk) (`v1.6.1`). MCP endpoint is at `/mcp`; an optional BFF web UI (enable via `web:` config) serves the SPA at `/` with `/auth/*` + `/api/*`.
 
 ## Commands
 
@@ -12,7 +12,7 @@ gofmt -l .                                  # MUST print nothing before committi
 go vet ./...
 go generate ./...                           # regenerate ent after a schema change (see below)
 
-go run . --config config.yaml               # serve (Streamable HTTP MCP at "/")
+go run . --config config.yaml               # serve (Streamable HTTP MCP at "/mcp")
 go run . --config config.yaml rebuild-index # rebuild the Bleve index from the DB
 ```
 
@@ -71,7 +71,7 @@ config → tenant → auth        identity & config
 - `internal/store/{access,project,document}.go` — the authorization rule + all DB invariants
 - `internal/mcp/{service,server,tools_*,elicit}.go` — tool surface (23 tools, annotated read-only/destructive)
 - `internal/auth/resource.go` — the `TokenVerifier` adapter + `IdentityFromRequest`
-- `cmd/server/server.go` — `Run(ctx, args, logger)`; serve + `rebuild-index`
+- `cmd/server/server.go` — `Run(ctx, args, logger)`; serve (`/mcp` + optional web UI at `/`) + `rebuild-index`
 - `config.example.yaml` — every config key
 
 ## Notes

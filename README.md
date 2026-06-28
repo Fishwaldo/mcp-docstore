@@ -93,12 +93,14 @@ is the single source of truth and is reconciled on each login.
 # build
 go build -o mcp-docstore .
 
-# serve (Streamable HTTP MCP endpoint at "/", metadata at /.well-known/oauth-protected-resource)
+# serve (Streamable HTTP MCP endpoint at "/mcp", metadata at /.well-known/oauth-protected-resource)
 ./mcp-docstore --config config.yaml
 
 # rebuild the search index from the database (after a schema change or index loss)
 ./mcp-docstore --config config.yaml rebuild-index
 ```
+
+> **Breaking change:** the MCP endpoint moved from `/` to `/mcp` in v0.5.0. Existing MCP clients must repoint their server URL to `<public_url>/mcp`.
 
 On first boot with an empty index, the server builds it from the database automatically.
 
@@ -141,10 +143,35 @@ docker build -t mcp-docstore .
 
 ### Authentication
 
-Every request to the MCP endpoint must carry `Authorization: Bearer <JWT>`. The server verifies
-the token against the configured OIDC issuer (signature, `exp`, `iss`, and `aud`), resolves the
-email to a tenant, and rejects unknown identities with `401` plus a `WWW-Authenticate` challenge
-pointing at the [RFC 9728](https://datatracker.ietf.org/doc/rfc9728) protected-resource metadata.
+Every request to the MCP endpoint (`/mcp`) must carry `Authorization: Bearer <JWT>`. The server
+verifies the token against the configured OIDC issuer (signature, `exp`, `iss`, and `aud`),
+resolves the email to a tenant, and rejects unknown identities with `401` plus a
+`WWW-Authenticate` challenge pointing at the
+[RFC 9728](https://datatracker.ietf.org/doc/rfc9728) protected-resource metadata.
+
+### Web UI (optional, BFF)
+
+A browser-facing session layer can be enabled by adding a `web:` block to the config. It serves
+the single-page app at `/`, the OIDC login/callback/logout flow at `/auth/*`, and the read-only
+REST API at `/api/*`. The web UI requires a **separate confidential OIDC client** (e.g. an Okta
+app) configured to return `groups` and `email` claims; it must not share the MCP bearer-token
+client.
+
+```yaml
+web:
+  client_id: "0oaXXX..."
+  client_secret: "secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+  post_logout_redirect_url: "https://docs.example.com/"
+  scopes: ["openid", "email", "profile", "groups"]
+  cookie_secure: true           # set false only for local HTTP dev
+  idle_timeout: 24h
+  absolute_timeout: 168h
+  sweep_interval: 1h
+```
+
+When `web:` is absent the server is MCP-only: `/mcp` is the sole active endpoint and `/`
+returns 404.
 
 ## Architecture
 

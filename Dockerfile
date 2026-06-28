@@ -1,5 +1,15 @@
 # syntax=docker/dockerfile:1
 
+# Stage 1: build the web SPA
+FROM node:22 AS web
+WORKDIR /src
+COPY web/ ./web/
+WORKDIR /src/web
+RUN npm ci
+RUN npm run build
+# Output lands at /src/internal/web/dist (vite outDir: "../internal/web/dist")
+
+# Stage 2: build the Go binary
 # Build on the native build platform and cross-compile to the target arch
 # (CGO is off — modernc.org/sqlite is pure Go — so no QEMU is needed to build).
 FROM --platform=$BUILDPLATFORM golang:1.26 AS build
@@ -9,6 +19,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# Overwrite the committed dist with the freshly built SPA so the embed is current.
+COPY --from=web /src/internal/web/dist ./internal/web/dist
 
 ARG TARGETOS
 ARG TARGETARCH
