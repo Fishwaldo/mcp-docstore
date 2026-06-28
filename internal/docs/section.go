@@ -16,6 +16,20 @@ import (
 // ErrHeadingNotFound is returned when no heading matches the requested name.
 var ErrHeadingNotFound = errors.New("heading not found")
 
+// normalizeHeading strips a leading ATX marker run (one to six '#') plus its
+// following space, so a caller may pass either the raw markdown form ("## Foo")
+// or the plain text goldmark parses ("Foo"). Surrounding whitespace is trimmed
+// either way. A '#' run not followed by a space is left intact (it is part of the
+// text, not an ATX marker).
+func normalizeHeading(h string) string {
+	h = strings.TrimSpace(h)
+	trimmed := strings.TrimLeft(h, "#")
+	if len(trimmed) < len(h) && strings.HasPrefix(trimmed, " ") {
+		return strings.TrimSpace(trimmed)
+	}
+	return h
+}
+
 type headingInfo struct {
 	line  int    // 0-based source line index of the heading
 	level int    // 1..6
@@ -31,8 +45,9 @@ func sectionRange(source, heading string) (lines []string, headingLine, start, e
 	headings := enumerateHeadings([]byte(source))
 
 	target := -1
+	want := normalizeHeading(heading)
 	for i, h := range headings {
-		if h.text == strings.TrimSpace(heading) {
+		if h.text == want {
 			target = i
 			break
 		}

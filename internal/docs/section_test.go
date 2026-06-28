@@ -123,3 +123,27 @@ func TestDeleteSection(t *testing.T) {
 	_, err = DeleteSection(sample, "Nope")
 	require.ErrorIs(t, err, ErrHeadingNotFound)
 }
+
+func TestSectionMatchesWithATXPrefix(t *testing.T) {
+	src := "## Foo\nbody"
+	got, err := GetSection(src, "## Foo")
+	if err != nil {
+		t.Fatalf("want match with ATX prefix, got error: %v", err)
+	}
+	if got != "body" {
+		t.Fatalf("got %q want %q", got, "body")
+	}
+}
+
+func TestSectionMatchesPlainAndPunctuated(t *testing.T) {
+	src := "## 6. Inference Stack (install order)\nalpha\n## 4. Proxmox — Gotchas\nbeta\n"
+	for _, h := range []string{
+		"## 6. Inference Stack (install order)",
+		"6. Inference Stack (install order)",
+		"## 4. Proxmox — Gotchas",
+	} {
+		if _, err := GetSection(src, h); err != nil {
+			t.Errorf("heading %q should match, got: %v", h, err)
+		}
+	}
+}
