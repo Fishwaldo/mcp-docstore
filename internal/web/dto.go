@@ -131,6 +131,6 @@ func toSearchHit(r search.Result) SearchHitDTO {
 		Title:      r.Title,
 		Overview:   r.Overview,
 		Score:      r.Score,
-		Snippet:    r.Snippet,
+		Snippet:    sanitizeSnippet(r.Snippet),
 	}
 }

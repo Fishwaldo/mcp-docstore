@@ -43,3 +43,13 @@ func TestRenderMarkdownStripsDataImages(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, html, "data:")
 }
+
+func TestSanitizeSnippetBlocksMaliciousHTML(t *testing.T) {
+	input := `<mark>hit</mark> <script>alert(1)</script> <img src=x onerror=evil()> plain`
+	out := sanitizeSnippet(input)
+	require.Contains(t, out, "<mark>hit</mark>")
+	require.NotContains(t, out, "<script")
+	require.NotContains(t, out, "onerror")
+	require.NotContains(t, out, "<img")
+	require.Contains(t, out, "plain")
+}

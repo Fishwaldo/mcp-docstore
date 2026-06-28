@@ -11,6 +11,15 @@ import (
 	"github.com/yuin/goldmark"
 )
 
+// sanitizeSnippet keeps only <mark> highlight tags from a Bleve search snippet
+// and escapes everything else, preventing indexed document content from injecting
+// markup into the SPA via dangerouslySetInnerHTML.
+func sanitizeSnippet(s string) string {
+	p := bluemonday.NewPolicy()
+	p.AllowElements("mark")
+	return p.Sanitize(s)
+}
+
 // renderMarkdown converts a document body to sanitized HTML for the browser. goldmark
 // produces HTML; bluemonday then strips anything that could execute or exfiltrate —
 // scripts, event handlers, javascript: URLs. Image src values are restricted to purely
