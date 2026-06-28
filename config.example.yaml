@@ -45,7 +45,7 @@ tenants:
 #  redirect_url: "https://docs.example.com/auth/callback"           # required; must match Okta app config
 #  post_logout_redirect_url: "https://example.com"                  # optional; where to redirect after logout
 #  scopes: ["openid", "email", "profile", "groups"]                 # defaults shown; customize as needed
-#  cookie_secure: true                                              # secure cookies; set true in production (default false)
+#  cookie_secure: true                                              # secure (HTTPS-only) cookies; default true. Set false ONLY for local http development
 #  idle_timeout: 24h                                                # reap idle sessions after this duration (default 24h)
 #  absolute_timeout: 168h                                           # absolute session lifetime (default 168h / 7 days)
 #  sweep_interval: 1h                                               # interval to reap expired sessions (default 1h)

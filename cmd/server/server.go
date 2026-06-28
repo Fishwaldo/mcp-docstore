@@ -149,10 +149,13 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 			RedirectURL:           cfg.Web.RedirectURL,
 			PostLogoutRedirectURL: cfg.Web.PostLogoutRedirectURL,
 			Scopes:                cfg.Web.Scopes,
-			CookieSecure:          cfg.Web.CookieSecure,
+			CookieSecure:          cfg.Web.CookieSecure == nil || *cfg.Web.CookieSecure,
 			IdleTimeout:           cfg.Web.IdleTimeout,
 			AbsoluteTimeout:       cfg.Web.AbsoluteTimeout,
 			SweepInterval:         cfg.Web.SweepInterval,
+		}
+		if !webCfg.CookieSecure {
+			logger.Warn("web cookie_secure is false; session and CSRF cookies will be sent over plain HTTP — use only for local development")
 		}
 		oidcClient, err := web.NewOIDCClient(ctx, cfg.OIDC.Issuer, webCfg, cfg.OIDC.GroupsClaim)
 		if err != nil {

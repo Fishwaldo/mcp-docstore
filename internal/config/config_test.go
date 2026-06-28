@@ -589,7 +589,43 @@ web:
 `)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.True(t, cfg.Web.CookieSecure)
+	require.NotNil(t, cfg.Web.CookieSecure)
+	require.True(t, *cfg.Web.CookieSecure)
+}
+
+func TestWebConfigCookieSecureDefaultsTrue(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Web.CookieSecure)
+	require.True(t, *cfg.Web.CookieSecure)
+}
+
+func TestWebConfigCookieSecureExplicitFalse(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+  cookie_secure: false
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Web.CookieSecure)
+	require.False(t, *cfg.Web.CookieSecure)
 }
 
 func TestWebConfigPostLogoutRedirectURL(t *testing.T) {

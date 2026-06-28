@@ -82,15 +82,18 @@ type TenantMatch struct {
 // WebConfig configures the optional BFF for web UI sessions. All fields except
 // PostLogoutRedirectURL are required when the web block is present.
 type WebConfig struct {
-	ClientID              string        `mapstructure:"client_id"`
-	ClientSecret          string        `mapstructure:"client_secret"`
-	RedirectURL           string        `mapstructure:"redirect_url"`
-	PostLogoutRedirectURL string        `mapstructure:"post_logout_redirect_url"`
-	Scopes                []string      `mapstructure:"scopes"`
-	CookieSecure          bool          `mapstructure:"cookie_secure"`
-	IdleTimeout           time.Duration `mapstructure:"idle_timeout"`
-	AbsoluteTimeout       time.Duration `mapstructure:"absolute_timeout"`
-	SweepInterval         time.Duration `mapstructure:"sweep_interval"`
+	ClientID              string   `mapstructure:"client_id"`
+	ClientSecret          string   `mapstructure:"client_secret"`
+	RedirectURL           string   `mapstructure:"redirect_url"`
+	PostLogoutRedirectURL string   `mapstructure:"post_logout_redirect_url"`
+	Scopes                []string `mapstructure:"scopes"`
+	// CookieSecure marks the session and CSRF cookies as Secure (HTTPS-only). It is a
+	// pointer so an unset value defaults to true (secure by default); set it to false
+	// only to opt out for local plain-HTTP development.
+	CookieSecure    *bool         `mapstructure:"cookie_secure"`
+	IdleTimeout     time.Duration `mapstructure:"idle_timeout"`
+	AbsoluteTimeout time.Duration `mapstructure:"absolute_timeout"`
+	SweepInterval   time.Duration `mapstructure:"sweep_interval"`
 }
 
 // Load reads, defaults, normalizes, and validates the config at path.
@@ -153,6 +156,10 @@ func (c *Config) applyDefaults() {
 		}
 		if c.Web.SweepInterval <= 0 {
 			c.Web.SweepInterval = 1 * time.Hour
+		}
+		if c.Web.CookieSecure == nil {
+			secure := true
+			c.Web.CookieSecure = &secure
 		}
 	}
 }
