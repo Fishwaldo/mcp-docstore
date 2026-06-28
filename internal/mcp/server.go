@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/Fishwaldo/mcp-docstore/internal/app"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 )
 
@@ -17,7 +18,7 @@ import (
 type identityFunc func(*sdk.CallToolRequest) (store.Identity, bool)
 
 type registrar struct {
-	svc         *Service
+	svc         *app.Service
 	identityFor identityFunc
 	log         *slog.Logger
 }
@@ -62,7 +63,7 @@ Editing safely:
 // NewMCPServer builds the MCP server with all tools registered. version is advertised in
 // the initialize handshake (InitializeResult.ServerInfo.Version); callers pass the build
 // version, defaulting it to "dev" for unstamped local builds.
-func NewMCPServer(svc *Service, identityFor identityFunc, log *slog.Logger, icons []sdk.Icon, version string) *sdk.Server {
+func NewMCPServer(svc *app.Service, identityFor identityFunc, log *slog.Logger, icons []sdk.Icon, version string) *sdk.Server {
 	if log == nil {
 		log = slog.Default()
 	}

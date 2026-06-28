@@ -22,6 +22,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	"github.com/Fishwaldo/mcp-docstore/assets"
+	"github.com/Fishwaldo/mcp-docstore/internal/app"
 	"github.com/Fishwaldo/mcp-docstore/internal/auth"
 	"github.com/Fishwaldo/mcp-docstore/internal/config"
 	"github.com/Fishwaldo/mcp-docstore/internal/index"
@@ -113,7 +114,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return err
 	}
 
-	svc := imcp.NewService(st, idxSvc, logger)
+	svc := app.NewService(st, idxSvc, logger)
 	icons := []sdkmcp.Icon{
 		{Source: cfg.PublicURL + "/icon-512.png", MIMEType: "image/png", Sizes: []string{"512x512"}},
 		{Source: cfg.PublicURL + "/icon-96.png", MIMEType: "image/png", Sizes: []string{"96x96"}},

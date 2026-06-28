@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Justin Hammond
 // SPDX-License-Identifier: MIT
 
-// Package mcp wires the store, search index, and goldmark editing into the MCP tool
-// surface. The Service bundles each store mutation with its search-index sync and any
-// markdown orchestration; all methods take a resolved store.Identity.
-package mcp
+// Package app is the transport-neutral business layer: the Service bundles each store
+// mutation with its search-index sync and any markdown orchestration; all methods take a
+// resolved store.Identity, so both the MCP tool surface and any future web transport call it.
+package app
 
 import (
 	"context"
