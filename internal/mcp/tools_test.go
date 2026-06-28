@@ -330,6 +330,108 @@ func TestRestoreSnapshotElicitAccept(t *testing.T) {
 	require.False(t, res.IsError)
 }
 
+func TestRestoreSnapshotDefaultsToBodyOnly(t *testing.T) {
+	svc, _, id, pid := newSvc(t)
+	cs := startServerWithClient(t, svc, id, acceptClient())
+	ctx := context.Background()
+
+	// Create a doc with tags status:not-started
+	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{
+		Title: "T",
+		Body:  "v1",
+		Tags:  []string{"status:not-started"},
+	})
+	require.NoError(t, err)
+
+	// Edit to version 2 with tags status:in-progress
+	body2 := "v2"
+	tags2 := []string{"status:in-progress"}
+	d2, err := svc.EditReplace(ctx, id, d.ID, d.Version, nil, &body2, &tags2, "change")
+	require.NoError(t, err)
+
+	// Restore v1 with no scope (defaults to body-only)
+	res, err := cs.CallTool(ctx, &sdk.CallToolParams{
+		Name: "restore_snapshot",
+		Arguments: map[string]any{
+			"document_id":  d.ID.String(),
+			"version":      d.Version,
+			"base_version": d2.Version,
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+
+	// Extract tags from the result
+	m, ok := res.StructuredContent.(map[string]any)
+	require.True(t, ok, "structured content should be a JSON object")
+	restoredTags, ok := m["tags"].([]any)
+	require.True(t, ok, "tags should be an array")
+
+	// Should preserve live tags (status:in-progress), NOT revert to status:not-started
+	require.Len(t, restoredTags, 1)
+	require.Equal(t, "status:in-progress", restoredTags[0])
+}
+
+func TestRestoreSnapshotScopeFullRevertsTags(t *testing.T) {
+	svc, _, id, pid := newSvc(t)
+	cs := startServerWithClient(t, svc, id, acceptClient())
+	ctx := context.Background()
+
+	// Create a doc with tags status:not-started
+	d, err := svc.CreateDocument(ctx, id, pid, store.NewDocument{
+		Title: "T",
+		Body:  "v1",
+		Tags:  []string{"status:not-started"},
+	})
+	require.NoError(t, err)
+
+	// Edit to version 2 with tags status:in-progress
+	body2 := "v2"
+	tags2 := []string{"status:in-progress"}
+	d2, err := svc.EditReplace(ctx, id, d.ID, d.Version, nil, &body2, &tags2, "change")
+	require.NoError(t, err)
+
+	// Restore v1 with scope="full"
+	res, err := cs.CallTool(ctx, &sdk.CallToolParams{
+		Name: "restore_snapshot",
+		Arguments: map[string]any{
+			"document_id":  d.ID.String(),
+			"version":      d.Version,
+			"base_version": d2.Version,
+			"scope":        "full",
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+
+	// Extract tags from the result
+	m, ok := res.StructuredContent.(map[string]any)
+	require.True(t, ok, "structured content should be a JSON object")
+	restoredTags, ok := m["tags"].([]any)
+	require.True(t, ok, "tags should be an array")
+
+	// Should revert to snapshot tags (status:not-started)
+	require.Len(t, restoredTags, 1)
+	require.Equal(t, "status:not-started", restoredTags[0])
+}
+
+func TestRestoreSnapshotAdvertisesScopeEnum(t *testing.T) {
+	svc, _, id, _ := newSvc(t)
+	cs := startServer(t, svc, id)
+	res, err := cs.ListTools(context.Background(), &sdk.ListToolsParams{})
+	require.NoError(t, err)
+	byName := map[string]*sdk.Tool{}
+	for _, tl := range res.Tools {
+		byName[tl.Name] = tl
+	}
+
+	// Check that restore_snapshot has scope enum with ["body", "full"]
+	props := schemaProps(t, byName["restore_snapshot"].InputSchema)
+	scope, ok := props["scope"].(map[string]any)
+	require.True(t, ok, "restore_snapshot.scope missing from schema")
+	require.ElementsMatch(t, []any{"body", "full"}, scope["enum"])
+}
+
 func TestToolAnnotations(t *testing.T) {
 	svc, _, id, _ := newSvc(t)
 	cs := startServer(t, svc, id)
