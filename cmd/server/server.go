@@ -30,6 +30,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/search"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 	"github.com/Fishwaldo/mcp-docstore/internal/tenant"
+	"github.com/Fishwaldo/mcp-docstore/internal/web"
 )
 
 const metadataPath = "/.well-known/oauth-protected-resource"
@@ -139,7 +140,34 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	mux.Handle("/icon-512.png", servePNG(assets.Icon512PNG))
 	mux.Handle("/icon-96.png", servePNG(assets.Icon96PNG))
 	mcpHandler := logRequests(logger, cfg.Logging.ClientIPHeader, bearer(streamable))
-	mux.Handle("/", maxBytes(cfg.MaxRequestBytes, mcpHandler))
+	mux.Handle("/mcp", maxBytes(cfg.MaxRequestBytes, mcpHandler))
+
+	if cfg.Web != nil {
+		webCfg := web.Config{
+			ClientID:              cfg.Web.ClientID,
+			ClientSecret:          cfg.Web.ClientSecret,
+			RedirectURL:           cfg.Web.RedirectURL,
+			PostLogoutRedirectURL: cfg.Web.PostLogoutRedirectURL,
+			Scopes:                cfg.Web.Scopes,
+			CookieSecure:          cfg.Web.CookieSecure,
+			IdleTimeout:           cfg.Web.IdleTimeout,
+			AbsoluteTimeout:       cfg.Web.AbsoluteTimeout,
+			SweepInterval:         cfg.Web.SweepInterval,
+		}
+		oidcClient, err := web.NewOIDCClient(ctx, cfg.OIDC.Issuer, webCfg, cfg.OIDC.GroupsClaim)
+		if err != nil {
+			return err
+		}
+		webSrv := web.New(webCfg, st, svc, resolver, oidcClient, logger)
+		webSrv.StartSweeper(ctx)
+		webSrv.Mount(mux)
+		spa, err := webSrv.SPAHandler()
+		if err != nil {
+			return err
+		}
+		mux.Handle("/", spa)
+		logger.Info("web UI enabled", "redirect_url", cfg.Web.RedirectURL)
+	}
 
 	// ReadTimeout / WriteTimeout are deliberately NOT set: Streamable HTTP holds
 	// long-lived SSE response streams, and a write deadline would sever them

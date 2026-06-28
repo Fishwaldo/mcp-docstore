@@ -161,12 +161,18 @@ func TestServeMetadataAndUnauthorized(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, string(body), "https://docs.example.com")
 
-	// Unauthenticated request to the MCP endpoint must be rejected with 401 + WWW-Authenticate.
-	unauth, err := http.Get("http://" + addr + "/")
+	// MCP endpoint moved to /mcp: unauthenticated request must be rejected with 401 + WWW-Authenticate.
+	unauth, err := http.Get("http://" + addr + "/mcp")
 	require.NoError(t, err)
 	defer unauth.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, unauth.StatusCode)
 	require.NotEmpty(t, unauth.Header.Get("WWW-Authenticate"))
+
+	// Root is NOT the MCP handler when web UI is disabled — it should return 404.
+	rootResp, err := http.Get("http://" + addr + "/")
+	require.NoError(t, err)
+	defer rootResp.Body.Close()
+	require.Equal(t, http.StatusNotFound, rootResp.StatusCode)
 
 	// The icon route is served unauthenticated as image/png.
 	iconResp, err := http.Get("http://" + addr + "/icon-512.png")
@@ -177,6 +183,138 @@ func TestServeMetadataAndUnauthorized(t *testing.T) {
 	require.Equal(t, http.StatusOK, iconResp.StatusCode)
 	require.Equal(t, "image/png", iconResp.Header.Get("Content-Type"))
 	require.NotEmpty(t, iconBody)
+
+	cancel()
+	select {
+	case err := <-runErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// webConfig appends a web: block to a base config string, using the given OIDC issuer for
+// the BFF's confidential client. This is the same issuer as cfg.OIDC.Issuer so
+// web.NewOIDCClient can perform discovery against the in-process oidctest server.
+func webConfig(base, issuer string) string {
+	return base +
+		"web:\n" +
+		"  client_id: web-client\n" +
+		"  client_secret: web-secret\n" +
+		"  redirect_url: \"" + issuer + "/callback\"\n" +
+		"  cookie_secure: false\n"
+}
+
+// TestMCPOnlyModeNoBearerAtRoot verifies the MCP-only (no web:) deployment: /mcp
+// triggers the bearer-auth challenge and / is not the MCP handler (returns 404).
+func TestMCPOnlyModeNoBearerAtRoot(t *testing.T) {
+	issuer := startOIDC(t)
+	addr := freeAddr(t)
+	cfgPath := writeConfig(t, baseConfig(t, issuer, addr))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+
+	// Wait for server readiness via the metadata endpoint.
+	metaURL := "http://" + addr + "/.well-known/oauth-protected-resource"
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		resp, err := http.Get(metaURL)
+		if err == nil {
+			require.NoError(t, resp.Body.Close())
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never came up: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// /mcp without a token → 401 + WWW-Authenticate (bearer middleware).
+	mcpResp, err := http.Get("http://" + addr + "/mcp")
+	require.NoError(t, err)
+	require.NoError(t, mcpResp.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
+	require.NotEmpty(t, mcpResp.Header.Get("WWW-Authenticate"), "bearer challenge missing on /mcp")
+
+	// / is not the MCP handler in MCP-only mode; ServeMux returns 404.
+	rootResp, err := http.Get("http://" + addr + "/")
+	require.NoError(t, err)
+	require.NoError(t, rootResp.Body.Close())
+	require.Equal(t, http.StatusNotFound, rootResp.StatusCode, "/ must not be the MCP handler in MCP-only mode")
+
+	cancel()
+	select {
+	case err := <-runErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// TestWebEnabledModeRoutes verifies that when web: is present the server mounts
+// /auth/login (redirect) and /api/projects (session-gated 401) in addition to /mcp.
+func TestWebEnabledModeRoutes(t *testing.T) {
+	issuer := startOIDC(t)
+	addr := freeAddr(t)
+	cfgPath := writeConfig(t, webConfig(baseConfig(t, issuer, addr), issuer))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+
+	// Wait for server readiness.
+	metaURL := "http://" + addr + "/.well-known/oauth-protected-resource"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := http.Get(metaURL)
+		if err == nil {
+			require.NoError(t, resp.Body.Close())
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never came up: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// /mcp still requires a bearer token.
+	mcpResp, err := http.Get("http://" + addr + "/mcp")
+	require.NoError(t, err)
+	require.NoError(t, mcpResp.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
+
+	// /auth/login redirects to the IdP (302).
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	loginResp, err := client.Get("http://" + addr + "/auth/login")
+	require.NoError(t, err)
+	require.NoError(t, loginResp.Body.Close())
+	require.Equal(t, http.StatusFound, loginResp.StatusCode)
+
+	// /api/projects without a session returns 401.
+	apiResp, err := http.Get("http://" + addr + "/api/projects")
+	require.NoError(t, err)
+	require.NoError(t, apiResp.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, apiResp.StatusCode)
+
+	// / serves the SPA (200 with HTML).
+	rootResp, err := http.Get("http://" + addr + "/")
+	require.NoError(t, err)
+	rootBody, err := io.ReadAll(rootResp.Body)
+	require.NoError(t, err)
+	require.NoError(t, rootResp.Body.Close())
+	require.Equal(t, http.StatusOK, rootResp.StatusCode)
+	require.Contains(t, rootResp.Header.Get("Content-Type"), "text/html")
+	require.NotEmpty(t, rootBody)
 
 	cancel()
 	select {
