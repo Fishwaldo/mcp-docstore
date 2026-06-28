@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Fishwaldo/mcp-docstore/internal/app"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 	"github.com/Fishwaldo/mcp-docstore/internal/tenant"
 )
@@ -31,18 +32,19 @@ type Config struct {
 type Server struct {
 	cfg      Config
 	store    *store.Store
+	svc      *app.Service
 	resolver *tenant.Resolver
 	oidc     authClient
 	log      *slog.Logger
 }
 
 // New constructs a BFF Server.
-func New(cfg Config, st *store.Store, resolver *tenant.Resolver, oidc authClient, log *slog.Logger) *Server {
+func New(cfg Config, st *store.Store, svc *app.Service, resolver *tenant.Resolver, oidc authClient, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
 	if cfg.CookieName == "" {
 		cfg.CookieName = "ds_session"
 	}
-	return &Server{cfg: cfg, store: st, resolver: resolver, oidc: oidc, log: log}
+	return &Server{cfg: cfg, store: st, svc: svc, resolver: resolver, oidc: oidc, log: log}
 }

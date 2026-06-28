@@ -58,7 +58,7 @@ func newTestServer(t *testing.T, claims *auth.Claims) (*Server, *store.Store) {
 		IdleTimeout:     30 * time.Minute,
 		AbsoluteTimeout: 12 * time.Hour,
 	}
-	srv := New(cfg, st, resolver, &fakeAuth{authURL: "https://idp/authorize", claims: claims}, nil)
+	srv := New(cfg, st, nil, resolver, &fakeAuth{authURL: "https://idp/authorize", claims: claims}, nil)
 	return srv, st
 }
 

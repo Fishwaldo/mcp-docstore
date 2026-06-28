@@ -85,12 +85,15 @@ func toDocumentDTO(d *ent.Document, bodyHTML string) DocumentDTO {
 	return out
 }
 
-// SnapshotDTO represents a document snapshot's metadata in JSON.
+// SnapshotDTO represents a document snapshot in JSON. BodyHTML is populated only
+// by the single get-snapshot endpoint (rendered from the snapshotted markdown);
+// list-snapshots returns metadata only and omits the field.
 type SnapshotDTO struct {
 	Version   int    `json:"version"`
 	Comment   string `json:"comment"`
 	CreatedBy string `json:"created_by"`
 	CreatedAt string `json:"created_at"`
+	BodyHTML  string `json:"body_html,omitempty"`
 }
 
 // toSnapshotDTO converts an ent.DocumentSnapshot to SnapshotDTO.
