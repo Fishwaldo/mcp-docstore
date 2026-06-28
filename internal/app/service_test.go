@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Justin Hammond
 // SPDX-License-Identifier: MIT
 
-package mcp
+package app
 
 import (
 	"context"

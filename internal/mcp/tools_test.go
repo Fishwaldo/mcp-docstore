@@ -11,8 +11,36 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/google/uuid"
+
+	"github.com/Fishwaldo/mcp-docstore/internal/app"
+	"github.com/Fishwaldo/mcp-docstore/internal/index"
+	"github.com/Fishwaldo/mcp-docstore/internal/search"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 )
+
+func newSvc(t *testing.T) (*app.Service, *store.Store, store.Identity, uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.Open("sqlite", "file:mcpsvc-"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	t.Cleanup(func() { st.Close() })
+	require.NoError(t, st.Migrate(ctx))
+	idx, err := search.Open(t.TempDir() + "/idx.bleve")
+	require.NoError(t, err)
+	t.Cleanup(func() { idx.Close() })
+
+	ten, err := st.EnsureTenant(ctx, "acme", "Acme")
+	require.NoError(t, err)
+	u, err := st.UpsertUser(ctx, ten.ID, "sub-1", "alice@acme.com", false)
+	require.NoError(t, err)
+	id := store.Identity{TenantID: ten.ID, UserID: u.ID}
+	p, err := st.CreateProject(ctx, id, "P", "", "private")
+	require.NoError(t, err)
+
+	svc := app.NewService(st, index.New(st, idx), nil)
+	return svc, st, id, p.ID
+}
 
 func TestGetSectionTool(t *testing.T) {
 	svc, _, id, pid := newSvc(t)
@@ -525,12 +553,12 @@ func TestToolOutputFieldsDescribed(t *testing.T) {
 	require.Contains(t, desc, "base_version")
 }
 
-func startServer(t *testing.T, svc *Service, id store.Identity) *sdk.ClientSession {
+func startServer(t *testing.T, svc *app.Service, id store.Identity) *sdk.ClientSession {
 	t.Helper()
 	return startServerWithClient(t, svc, id, nil)
 }
 
-func startServerWithClient(t *testing.T, svc *Service, id store.Identity, copts *sdk.ClientOptions) *sdk.ClientSession {
+func startServerWithClient(t *testing.T, svc *app.Service, id store.Identity, copts *sdk.ClientOptions) *sdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
 	srv := NewMCPServer(svc, func(*sdk.CallToolRequest) (store.Identity, bool) { return id, true }, nil, nil, "test")
