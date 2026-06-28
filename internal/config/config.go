@@ -28,6 +28,8 @@ type Config struct {
 	OIDC            OIDC         `mapstructure:"oidc"`
 	Tenants         []TenantSpec `mapstructure:"tenants"`
 	Logging         Logging      `mapstructure:"logging"`
+	// Web configures the optional BFF for web UI sessions. When nil, the web UI is disabled.
+	Web *WebConfig `mapstructure:"web"`
 }
 
 type Database struct {
@@ -77,6 +79,20 @@ type TenantMatch struct {
 	Emails  []string `mapstructure:"emails"`
 }
 
+// WebConfig configures the optional BFF for web UI sessions. All fields except
+// PostLogoutRedirectURL are required when the web block is present.
+type WebConfig struct {
+	ClientID              string        `mapstructure:"client_id"`
+	ClientSecret          string        `mapstructure:"client_secret"`
+	RedirectURL           string        `mapstructure:"redirect_url"`
+	PostLogoutRedirectURL string        `mapstructure:"post_logout_redirect_url"`
+	Scopes                []string      `mapstructure:"scopes"`
+	CookieSecure          bool          `mapstructure:"cookie_secure"`
+	IdleTimeout           time.Duration `mapstructure:"idle_timeout"`
+	AbsoluteTimeout       time.Duration `mapstructure:"absolute_timeout"`
+	SweepInterval         time.Duration `mapstructure:"sweep_interval"`
+}
+
 // Load reads, defaults, normalizes, and validates the config at path.
 func Load(path string) (*Config, error) {
 	v := viper.New()
@@ -100,6 +116,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.normalize()
+	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -119,6 +136,23 @@ func (c *Config) normalize() {
 	for i := range c.Tenants {
 		for j, a := range c.Tenants[i].Admins {
 			c.Tenants[i].Admins[j] = strings.ToLower(strings.TrimSpace(a))
+		}
+	}
+}
+
+func (c *Config) applyDefaults() {
+	if c.Web != nil {
+		if len(c.Web.Scopes) == 0 {
+			c.Web.Scopes = []string{"openid", "email", "profile", "groups"}
+		}
+		if c.Web.IdleTimeout <= 0 {
+			c.Web.IdleTimeout = 24 * time.Hour
+		}
+		if c.Web.AbsoluteTimeout <= 0 {
+			c.Web.AbsoluteTimeout = 168 * time.Hour
+		}
+		if c.Web.SweepInterval <= 0 {
+			c.Web.SweepInterval = 1 * time.Hour
 		}
 	}
 }
@@ -193,6 +227,17 @@ func (c *Config) Validate() error {
 	case "", "json", "text":
 	default:
 		return fmt.Errorf("logging.format must be json or text, got %q", c.Logging.Format)
+	}
+	if c.Web != nil {
+		if c.Web.ClientID == "" {
+			return fmt.Errorf("web.client_id is required")
+		}
+		if c.Web.ClientSecret == "" {
+			return fmt.Errorf("web.client_secret is required")
+		}
+		if c.Web.RedirectURL == "" {
+			return fmt.Errorf("web.redirect_url is required")
+		}
 	}
 	return nil
 }

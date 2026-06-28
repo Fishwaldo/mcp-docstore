@@ -455,3 +455,156 @@ oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
 	_, err = Load(writeTemp(t, base+"logging: {format: xml}\n"))
 	require.ErrorContains(t, err, "logging.format")
 }
+
+func TestWebDisabledWhenAbsent(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Nil(t, cfg.Web)
+}
+
+func TestWebValidConfigLoadsWithDefaults(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Web)
+	require.Equal(t, "my-client-id", cfg.Web.ClientID)
+	require.Equal(t, "my-secret", cfg.Web.ClientSecret)
+	require.Equal(t, "https://docs.example.com/auth/callback", cfg.Web.RedirectURL)
+	// Check defaults
+	require.Equal(t, []string{"openid", "email", "profile", "groups"}, cfg.Web.Scopes)
+	require.Equal(t, 24*time.Hour, cfg.Web.IdleTimeout)
+	require.Equal(t, 168*time.Hour, cfg.Web.AbsoluteTimeout)
+	require.Equal(t, 1*time.Hour, cfg.Web.SweepInterval)
+}
+
+func TestWebValidateRejectsWebBlockMissingClientID(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+`)
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "web.client_id")
+}
+
+func TestWebValidateRejectsWebBlockMissingClientSecret(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  redirect_url: "https://docs.example.com/auth/callback"
+`)
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "web.client_secret")
+}
+
+func TestWebValidateRejectsWebBlockMissingRedirectURL(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+`)
+	_, err := Load(path)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "web.redirect_url")
+}
+
+func TestWebConfigCustomScopes(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+  scopes: ["openid", "email"]
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, []string{"openid", "email"}, cfg.Web.Scopes)
+}
+
+func TestWebConfigCustomTimeouts(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+  idle_timeout: 12h
+  absolute_timeout: 72h
+  sweep_interval: 30m
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 12*time.Hour, cfg.Web.IdleTimeout)
+	require.Equal(t, 72*time.Hour, cfg.Web.AbsoluteTimeout)
+	require.Equal(t, 30*time.Minute, cfg.Web.SweepInterval)
+}
+
+func TestWebConfigCookieSecure(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+  cookie_secure: true
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.True(t, cfg.Web.CookieSecure)
+}
+
+func TestWebConfigPostLogoutRedirectURL(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", audience: "mcp-docstore"}
+web:
+  client_id: "my-client-id"
+  client_secret: "my-secret"
+  redirect_url: "https://docs.example.com/auth/callback"
+  post_logout_redirect_url: "https://example.com"
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com", cfg.Web.PostLogoutRedirectURL)
+}
