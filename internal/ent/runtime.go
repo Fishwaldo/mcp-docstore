@@ -10,6 +10,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthcode"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthstate"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthclient"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthkey"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthprovidertoken"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshfamily"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshtoken"
@@ -175,6 +176,31 @@ func init() {
 	oauthclientDescID := oauthclientMixinFields0[0].Descriptor()
 	// oauthclient.DefaultID holds the default value on creation for the id field.
 	oauthclient.DefaultID = oauthclientDescID.Default.(func() uuid.UUID)
+	oauthkeyMixin := schema.OAuthKey{}.Mixin()
+	oauthkeyMixinFields0 := oauthkeyMixin[0].Fields()
+	_ = oauthkeyMixinFields0
+	oauthkeyFields := schema.OAuthKey{}.Fields()
+	_ = oauthkeyFields
+	// oauthkeyDescCreatedAt is the schema descriptor for created_at field.
+	oauthkeyDescCreatedAt := oauthkeyMixinFields0[1].Descriptor()
+	// oauthkey.DefaultCreatedAt holds the default value on creation for the created_at field.
+	oauthkey.DefaultCreatedAt = oauthkeyDescCreatedAt.Default.(func() time.Time)
+	// oauthkeyDescEcPrivateKeyPem is the schema descriptor for ec_private_key_pem field.
+	oauthkeyDescEcPrivateKeyPem := oauthkeyFields[1].Descriptor()
+	// oauthkey.EcPrivateKeyPemValidator is a validator for the "ec_private_key_pem" field. It is called by the builders before save.
+	oauthkey.EcPrivateKeyPemValidator = oauthkeyDescEcPrivateKeyPem.Validators[0].(func(string) error)
+	// oauthkeyDescKid is the schema descriptor for kid field.
+	oauthkeyDescKid := oauthkeyFields[2].Descriptor()
+	// oauthkey.KidValidator is a validator for the "kid" field. It is called by the builders before save.
+	oauthkey.KidValidator = oauthkeyDescKid.Validators[0].(func(string) error)
+	// oauthkeyDescMasterSecret is the schema descriptor for master_secret field.
+	oauthkeyDescMasterSecret := oauthkeyFields[3].Descriptor()
+	// oauthkey.MasterSecretValidator is a validator for the "master_secret" field. It is called by the builders before save.
+	oauthkey.MasterSecretValidator = oauthkeyDescMasterSecret.Validators[0].(func(string) error)
+	// oauthkeyDescID is the schema descriptor for id field.
+	oauthkeyDescID := oauthkeyMixinFields0[0].Descriptor()
+	// oauthkey.DefaultID holds the default value on creation for the id field.
+	oauthkey.DefaultID = oauthkeyDescID.Default.(func() uuid.UUID)
 	oauthprovidertokenMixin := schema.OAuthProviderToken{}.Mixin()
 	oauthprovidertokenMixinFields0 := oauthprovidertokenMixin[0].Fields()
 	_ = oauthprovidertokenMixinFields0

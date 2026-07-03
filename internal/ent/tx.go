@@ -22,6 +22,8 @@ type Tx struct {
 	OAuthAuthState *OAuthAuthStateClient
 	// OAuthClient is the client for interacting with the OAuthClient builders.
 	OAuthClient *OAuthClientClient
+	// OAuthKey is the client for interacting with the OAuthKey builders.
+	OAuthKey *OAuthKeyClient
 	// OAuthProviderToken is the client for interacting with the OAuthProviderToken builders.
 	OAuthProviderToken *OAuthProviderTokenClient
 	// OAuthRefreshFamily is the client for interacting with the OAuthRefreshFamily builders.
@@ -182,6 +184,7 @@ func (tx *Tx) init() {
 	tx.OAuthAuthCode = NewOAuthAuthCodeClient(tx.config)
 	tx.OAuthAuthState = NewOAuthAuthStateClient(tx.config)
 	tx.OAuthClient = NewOAuthClientClient(tx.config)
+	tx.OAuthKey = NewOAuthKeyClient(tx.config)
 	tx.OAuthProviderToken = NewOAuthProviderTokenClient(tx.config)
 	tx.OAuthRefreshFamily = NewOAuthRefreshFamilyClient(tx.config)
 	tx.OAuthRefreshToken = NewOAuthRefreshTokenClient(tx.config)

@@ -180,6 +180,21 @@ var (
 			},
 		},
 	}
+	// OauthKeysColumns holds the columns for the "oauth_keys" table.
+	OauthKeysColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "singleton", Type: field.TypeInt, Unique: true},
+		{Name: "ec_private_key_pem", Type: field.TypeString},
+		{Name: "kid", Type: field.TypeString},
+		{Name: "master_secret", Type: field.TypeString},
+	}
+	// OauthKeysTable holds the schema information for the "oauth_keys" table.
+	OauthKeysTable = &schema.Table{
+		Name:       "oauth_keys",
+		Columns:    OauthKeysColumns,
+		PrimaryKey: []*schema.Column{OauthKeysColumns[0]},
+	}
 	// OauthProviderTokensColumns holds the columns for the "oauth_provider_tokens" table.
 	OauthProviderTokensColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeUUID},
@@ -529,6 +544,7 @@ var (
 		OauthAuthCodesTable,
 		OauthAuthStatesTable,
 		OauthClientsTable,
+		OauthKeysTable,
 		OauthProviderTokensTable,
 		OauthRefreshFamiliesTable,
 		OauthRefreshTokensTable,

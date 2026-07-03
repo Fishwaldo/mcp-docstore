@@ -21,6 +21,9 @@ type OAuthAuthState func(*sql.Selector)
 // OAuthClient is the predicate function for oauthclient builders.
 type OAuthClient func(*sql.Selector)
 
+// OAuthKey is the predicate function for oauthkey builders.
+type OAuthKey func(*sql.Selector)
+
 // OAuthProviderToken is the predicate function for oauthprovidertoken builders.
 type OAuthProviderToken func(*sql.Selector)
 
