@@ -56,6 +56,12 @@ func (_u *OAuthRefreshTokenUpdate) SetNillableClientID(v *string) *OAuthRefreshT
 	return _u
 }
 
+// ClearClientID clears the value of the "client_id" field.
+func (_u *OAuthRefreshTokenUpdate) ClearClientID() *OAuthRefreshTokenUpdate {
+	_u.mutation.ClearClientID()
+	return _u
+}
+
 // SetFamilyID sets the "family_id" field.
 func (_u *OAuthRefreshTokenUpdate) SetFamilyID(v string) *OAuthRefreshTokenUpdate {
 	_u.mutation.SetFamilyID(v)
@@ -150,11 +156,6 @@ func (_u *OAuthRefreshTokenUpdate) check() error {
 			return &ValidationError{Name: "user_id", err: fmt.Errorf(`ent: validator failed for field "OAuthRefreshToken.user_id": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.ClientID(); ok {
-		if err := oauthrefreshtoken.ClientIDValidator(v); err != nil {
-			return &ValidationError{Name: "client_id", err: fmt.Errorf(`ent: validator failed for field "OAuthRefreshToken.client_id": %w`, err)}
-		}
-	}
 	return nil
 }
 
@@ -175,6 +176,9 @@ func (_u *OAuthRefreshTokenUpdate) sqlSave(ctx context.Context) (_node int, err 
 	}
 	if value, ok := _u.mutation.ClientID(); ok {
 		_spec.SetField(oauthrefreshtoken.FieldClientID, field.TypeString, value)
+	}
+	if _u.mutation.ClientIDCleared() {
+		_spec.ClearField(oauthrefreshtoken.FieldClientID, field.TypeString)
 	}
 	if value, ok := _u.mutation.FamilyID(); ok {
 		_spec.SetField(oauthrefreshtoken.FieldFamilyID, field.TypeString, value)
@@ -236,6 +240,12 @@ func (_u *OAuthRefreshTokenUpdateOne) SetNillableClientID(v *string) *OAuthRefre
 	if v != nil {
 		_u.SetClientID(*v)
 	}
+	return _u
+}
+
+// ClearClientID clears the value of the "client_id" field.
+func (_u *OAuthRefreshTokenUpdateOne) ClearClientID() *OAuthRefreshTokenUpdateOne {
+	_u.mutation.ClearClientID()
 	return _u
 }
 
@@ -346,11 +356,6 @@ func (_u *OAuthRefreshTokenUpdateOne) check() error {
 			return &ValidationError{Name: "user_id", err: fmt.Errorf(`ent: validator failed for field "OAuthRefreshToken.user_id": %w`, err)}
 		}
 	}
-	if v, ok := _u.mutation.ClientID(); ok {
-		if err := oauthrefreshtoken.ClientIDValidator(v); err != nil {
-			return &ValidationError{Name: "client_id", err: fmt.Errorf(`ent: validator failed for field "OAuthRefreshToken.client_id": %w`, err)}
-		}
-	}
 	return nil
 }
 
@@ -388,6 +393,9 @@ func (_u *OAuthRefreshTokenUpdateOne) sqlSave(ctx context.Context) (_node *OAuth
 	}
 	if value, ok := _u.mutation.ClientID(); ok {
 		_spec.SetField(oauthrefreshtoken.FieldClientID, field.TypeString, value)
+	}
+	if _u.mutation.ClientIDCleared() {
+		_spec.ClearField(oauthrefreshtoken.FieldClientID, field.TypeString)
 	}
 	if value, ok := _u.mutation.FamilyID(); ok {
 		_spec.SetField(oauthrefreshtoken.FieldFamilyID, field.TypeString, value)

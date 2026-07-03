@@ -233,7 +233,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "token_hash", Type: field.TypeString, Unique: true},
 		{Name: "user_id", Type: field.TypeString},
-		{Name: "client_id", Type: field.TypeString},
+		{Name: "client_id", Type: field.TypeString, Nullable: true},
 		{Name: "family_id", Type: field.TypeString, Nullable: true},
 		{Name: "generation", Type: field.TypeInt, Default: 0},
 		{Name: "expires_at", Type: field.TypeTime},

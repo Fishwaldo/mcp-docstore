@@ -24,7 +24,11 @@ func (OAuthRefreshToken) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("token_hash").Unique().Immutable().NotEmpty(),
 		field.String("user_id").NotEmpty(),
-		field.String("client_id").NotEmpty(),
+		// Optional (default ""): the plain TokenStore.SaveRefreshToken has no client_id to
+		// record, and an empty client_id is the intended value — the mcp-oauth server routes
+		// storedClientID=="" to its OAuth 2.1 Section 6 "missing client binding" rejection
+		// path. The family-aware SaveRefreshTokenWithFamily sets a real client_id.
+		field.String("client_id").Optional(),
 		field.String("family_id").Optional(),
 		field.Int("generation").Default(0),
 		field.Time("expires_at"),

@@ -6922,9 +6922,22 @@ func (m *OAuthRefreshTokenMutation) OldClientID(ctx context.Context) (v string, 
 	return oldValue.ClientID, nil
 }
 
+// ClearClientID clears the value of the "client_id" field.
+func (m *OAuthRefreshTokenMutation) ClearClientID() {
+	m.client_id = nil
+	m.clearedFields[oauthrefreshtoken.FieldClientID] = struct{}{}
+}
+
+// ClientIDCleared returns if the "client_id" field was cleared in this mutation.
+func (m *OAuthRefreshTokenMutation) ClientIDCleared() bool {
+	_, ok := m.clearedFields[oauthrefreshtoken.FieldClientID]
+	return ok
+}
+
 // ResetClientID resets all changes to the "client_id" field.
 func (m *OAuthRefreshTokenMutation) ResetClientID() {
 	m.client_id = nil
+	delete(m.clearedFields, oauthrefreshtoken.FieldClientID)
 }
 
 // SetFamilyID sets the "family_id" field.
@@ -7272,6 +7285,9 @@ func (m *OAuthRefreshTokenMutation) AddField(name string, value ent.Value) error
 // mutation.
 func (m *OAuthRefreshTokenMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(oauthrefreshtoken.FieldClientID) {
+		fields = append(fields, oauthrefreshtoken.FieldClientID)
+	}
 	if m.FieldCleared(oauthrefreshtoken.FieldFamilyID) {
 		fields = append(fields, oauthrefreshtoken.FieldFamilyID)
 	}
@@ -7289,6 +7305,9 @@ func (m *OAuthRefreshTokenMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *OAuthRefreshTokenMutation) ClearField(name string) error {
 	switch name {
+	case oauthrefreshtoken.FieldClientID:
+		m.ClearClientID()
+		return nil
 	case oauthrefreshtoken.FieldFamilyID:
 		m.ClearFamilyID()
 		return nil

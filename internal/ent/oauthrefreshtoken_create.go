@@ -53,6 +53,14 @@ func (_c *OAuthRefreshTokenCreate) SetClientID(v string) *OAuthRefreshTokenCreat
 	return _c
 }
 
+// SetNillableClientID sets the "client_id" field if the given value is not nil.
+func (_c *OAuthRefreshTokenCreate) SetNillableClientID(v *string) *OAuthRefreshTokenCreate {
+	if v != nil {
+		_c.SetClientID(*v)
+	}
+	return _c
+}
+
 // SetFamilyID sets the "family_id" field.
 func (_c *OAuthRefreshTokenCreate) SetFamilyID(v string) *OAuthRefreshTokenCreate {
 	_c.mutation.SetFamilyID(v)
@@ -169,14 +177,6 @@ func (_c *OAuthRefreshTokenCreate) check() error {
 	if v, ok := _c.mutation.UserID(); ok {
 		if err := oauthrefreshtoken.UserIDValidator(v); err != nil {
 			return &ValidationError{Name: "user_id", err: fmt.Errorf(`ent: validator failed for field "OAuthRefreshToken.user_id": %w`, err)}
-		}
-	}
-	if _, ok := _c.mutation.ClientID(); !ok {
-		return &ValidationError{Name: "client_id", err: errors.New(`ent: missing required field "OAuthRefreshToken.client_id"`)}
-	}
-	if v, ok := _c.mutation.ClientID(); ok {
-		if err := oauthrefreshtoken.ClientIDValidator(v); err != nil {
-			return &ValidationError{Name: "client_id", err: fmt.Errorf(`ent: validator failed for field "OAuthRefreshToken.client_id": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Generation(); !ok {

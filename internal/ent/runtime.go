@@ -248,10 +248,6 @@ func init() {
 	oauthrefreshtokenDescUserID := oauthrefreshtokenFields[1].Descriptor()
 	// oauthrefreshtoken.UserIDValidator is a validator for the "user_id" field. It is called by the builders before save.
 	oauthrefreshtoken.UserIDValidator = oauthrefreshtokenDescUserID.Validators[0].(func(string) error)
-	// oauthrefreshtokenDescClientID is the schema descriptor for client_id field.
-	oauthrefreshtokenDescClientID := oauthrefreshtokenFields[2].Descriptor()
-	// oauthrefreshtoken.ClientIDValidator is a validator for the "client_id" field. It is called by the builders before save.
-	oauthrefreshtoken.ClientIDValidator = oauthrefreshtokenDescClientID.Validators[0].(func(string) error)
 	// oauthrefreshtokenDescGeneration is the schema descriptor for generation field.
 	oauthrefreshtokenDescGeneration := oauthrefreshtokenFields[4].Descriptor()
 	// oauthrefreshtoken.DefaultGeneration holds the default value on creation for the generation field.

@@ -315,6 +315,16 @@ func ClientIDHasSuffix(v string) predicate.OAuthRefreshToken {
 	return predicate.OAuthRefreshToken(sql.FieldHasSuffix(FieldClientID, v))
 }
 
+// ClientIDIsNil applies the IsNil predicate on the "client_id" field.
+func ClientIDIsNil() predicate.OAuthRefreshToken {
+	return predicate.OAuthRefreshToken(sql.FieldIsNull(FieldClientID))
+}
+
+// ClientIDNotNil applies the NotNil predicate on the "client_id" field.
+func ClientIDNotNil() predicate.OAuthRefreshToken {
+	return predicate.OAuthRefreshToken(sql.FieldNotNull(FieldClientID))
+}
+
 // ClientIDEqualFold applies the EqualFold predicate on the "client_id" field.
 func ClientIDEqualFold(v string) predicate.OAuthRefreshToken {
 	return predicate.OAuthRefreshToken(sql.FieldEqualFold(FieldClientID, v))

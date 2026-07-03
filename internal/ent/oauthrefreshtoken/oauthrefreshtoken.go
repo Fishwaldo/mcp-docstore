@@ -61,8 +61,6 @@ var (
 	TokenHashValidator func(string) error
 	// UserIDValidator is a validator for the "user_id" field. It is called by the builders before save.
 	UserIDValidator func(string) error
-	// ClientIDValidator is a validator for the "client_id" field. It is called by the builders before save.
-	ClientIDValidator func(string) error
 	// DefaultGeneration holds the default value on creation for the "generation" field.
 	DefaultGeneration int
 	// DefaultID holds the default value on creation for the "id" field.

@@ -8,6 +8,8 @@
 package entstore
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/security"
@@ -25,12 +27,11 @@ type Store struct {
 	providerTokenTTL time.Duration
 }
 
-// Interface compliance for the parts implemented so far. The remaining storage interfaces
-// (TokenStore and the optional extensions) are added by later methods on Store.
+// Store implements the full mcp-oauth storage.Combined interface (TokenStore, ClientStore,
+// and FlowStore), plus the optional ClientIPTracker extension.
 var (
-	_ storage.ClientStore     = (*Store)(nil)
+	_ storage.Combined        = (*Store)(nil)
 	_ storage.ClientIPTracker = (*Store)(nil)
-	_ storage.FlowStore       = (*Store)(nil)
 )
 
 // New constructs a Store over the given ent client. enc encrypts sensitive token fields at
@@ -38,4 +39,13 @@ var (
 // lifetime applied to cached upstream provider tokens.
 func New(c *ent.Client, enc *security.Encryptor, providerTokenTTL time.Duration) *Store {
 	return &Store{client: c, enc: enc, providerTokenTTL: providerTokenTTL}
+}
+
+// hashToken returns the lowercase hex SHA-256 of a raw token value. Refresh tokens are
+// looked up and stored by this hash, never by their raw value, mirroring
+// internal/store/session.go's rationale: a leaked database must not yield a usable
+// credential directly.
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
