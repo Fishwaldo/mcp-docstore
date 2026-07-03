@@ -106,9 +106,17 @@ func New(ctx context.Context, cfg Config, st storage.Combined, km *KeyMaterial, 
 		SupportedScopes:                       []string{"openid", "profile", "email", "groups", "offline_access"},
 		AllowPublicClientRegistration:         cfg.RegistrationOpen,
 		TrustedPublicRegistrationRedirectURIs: trustedRedirectURIs,
-		EnableRevocationEndpoint:              true,
-		TrustProxy:                            cfg.TrustProxy,
-		TrustedProxyCount:                     cfg.TrustedProxyCount,
+		// RFC 8252 §7.3: native apps (Claude Code's ephemeral loopback callback among them)
+		// register redirect URIs of the form http://127.0.0.1:PORT/... or
+		// http://localhost:PORT/..., where the port is chosen at runtime. Without this the
+		// library rejects every loopback redirect at registration, breaking native-app
+		// onboarding. This does not loosen allowlist mode: the library rejects loopback
+		// entries when normalizing TrustedPublicRegistrationRedirectURIs, so a loopback URI can
+		// never be allowlisted, and allowlist-mode DCR is gated by that exact-match list first.
+		AllowLocalhostRedirectURIs: true,
+		EnableRevocationEndpoint:   true,
+		TrustProxy:                 cfg.TrustProxy,
+		TrustedProxyCount:          cfg.TrustedProxyCount,
 	}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("oauthsrv: construct authorization server: %w", err)

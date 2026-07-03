@@ -367,9 +367,19 @@ func TestOAuthConformance(t *testing.T) {
 	upstreamTLS := &tls.Config{RootCAs: idp.RootCAs}
 	const mcpResource = "https://docs.example.com/mcp" // {public_url}/mcp per baseConfig
 
-	// Scenario 1: DCR -> consent -> PKCE -> MCP call.
+	// Scenario 1: DCR -> consent -> PKCE -> MCP call. This is the Claude Code onboarding path,
+	// so it deliberately registers a REAL RFC 8252 native-app loopback redirect (an ephemeral
+	// http://127.0.0.x:PORT/... callback) rather than the HTTPS IP-literal the other scenarios
+	// use. That exercises oauthsrv.New's AllowLocalhostRedirectURIs=true: without it, DCR would
+	// reject this redirect at registration and native-app onboarding would be broken. The port
+	// is fixed and nothing listens on it — obtainAuthCode captures the code off the AS's 302
+	// Location before the browser would ever dial the callback. The host is 127.0.0.2 (still in
+	// 127.0.0.0/8, so the library accepts it as loopback) purely so it stays distinct from the
+	// two other loopback hosts already in play that the browser's redirect-stop must NOT fire
+	// on: the real AS listener (127.0.0.1) and the upstream idptest (localhost).
 	t.Run("DCR_Consent_PKCE_MCPCall", func(t *testing.T) {
-		redirectURI := "https://" + conformanceRedirectURIHost + "/cb1"
+		const loopbackHost = "127.0.0.2"
+		redirectURI := "http://" + loopbackHost + ":49152/cb1"
 		clientID, clientSecret, reg := registerClient(t, addr, redirectURI, "Conformance Client 1")
 
 		// claude.ai Zod-parsing regression guard: optional URI fields must be ABSENT from the
@@ -382,7 +392,7 @@ func TestOAuthConformance(t *testing.T) {
 		query, verifier := authorizeQuery(clientID, redirectURI, "state-1-0123456789abcdef0123456789",
 			"openid profile email groups offline_access", mcpResource)
 
-		browser := newBrowser(t, upstreamTLS, conformanceRedirectURIHost, "docs.example.com", addr)
+		browser := newBrowser(t, upstreamTLS, loopbackHost, "docs.example.com", addr)
 		code, gotState := obtainAuthCode(t, browser, addr, query)
 		require.Equal(t, "state-1-0123456789abcdef0123456789", gotState)
 
@@ -447,10 +457,12 @@ func TestOAuthConformance(t *testing.T) {
 
 		replayStatus, replayBody := exchangeToken(t, addr, clientID, clientSecret, code, redirectURI, verifier, "")
 		require.Equal(t, http.StatusBadRequest, replayStatus, "a replayed authorization code must be rejected: %v", replayBody)
+		require.Equal(t, "invalid_grant", replayBody["error"], "reuse must be an OAuth invalid_grant, not an unrelated 400: %v", replayBody)
 
 		refreshStatus, refreshBody := refreshToken(t, addr, clientID, clientSecret, refreshTok)
 		require.Equal(t, http.StatusBadRequest, refreshStatus,
 			"code reuse must revoke the refresh token family: %v", refreshBody)
+		require.Equal(t, "invalid_grant", refreshBody["error"], "the revoked refresh must be an invalid_grant: %v", refreshBody)
 	})
 
 	// Scenario 4: refresh rotation mints a new access+refresh pair; reusing the old refresh
@@ -478,10 +490,12 @@ func TestOAuthConformance(t *testing.T) {
 
 		reuseStatus, reuseBody := refreshToken(t, addr, clientID, clientSecret, refreshTok1)
 		require.Equal(t, http.StatusBadRequest, reuseStatus, "reusing the old refresh token must error: %v", reuseBody)
+		require.Equal(t, "invalid_grant", reuseBody["error"], "refresh reuse must be an invalid_grant: %v", reuseBody)
 
 		deadStatus, deadBody := refreshToken(t, addr, clientID, clientSecret, refreshTok2)
 		require.Equal(t, http.StatusBadRequest, deadStatus,
 			"the rotated-to refresh token must also be dead once its family is revoked: %v", deadBody)
+		require.Equal(t, "invalid_grant", deadBody["error"], "the family-revoked refresh must be an invalid_grant: %v", deadBody)
 	})
 
 	// Scenario 5: revoking an access token via /oauth/revoke must make LocalVerifier reject
@@ -551,10 +565,12 @@ func TestOAuthConformanceRegistrationAllowlist(t *testing.T) {
 	idp := idptest.New(t)
 	addr := freeAddr(t)
 
-	// A claude.ai-style callback path, on an HTTPS public-IP-literal host for the same reason
-	// conformanceRedirectURIHost is used elsewhere in this file: it avoids both the
-	// AllowLocalhostRedirectURIs=false rejection and a real (strict-by-default) DNS lookup.
+	// A claude.ai-style callback path, on an HTTPS public-IP-literal host so no real
+	// (strict-by-default) DNS lookup is needed. The rejected case below reuses this SAME host
+	// and differs only by path, so the allowlist's exact-match — not any hostname or
+	// scheme difference — is provably the sole variable under test.
 	allowlisted := "https://" + conformanceRedirectURIHost + "/api/mcp/auth_callback"
+	notAllowlisted := "https://" + conformanceRedirectURIHost + "/some/other/callback"
 	cfg := baseConfig(t, idp, addr, "") +
 		"oauth:\n" +
 		"  registration: allowlist\n" +
@@ -565,9 +581,13 @@ func TestOAuthConformanceRegistrationAllowlist(t *testing.T) {
 	defer stop()
 	waitReady(t, addr)
 
-	t.Run("RandomRedirectRejected", func(t *testing.T) {
-		body := `{"client_name":"Random Client","redirect_uris":["https://192.0.2.55/cb"]}`
-		resp, err := http.Post("http://"+addr+"/oauth/register", "application/json", strings.NewReader(body))
+	t.Run("NonAllowlistedRedirectRejected", func(t *testing.T) {
+		body, err := json.Marshal(map[string]any{
+			"client_name":   "Non-allowlisted Client",
+			"redirect_uris": []string{notAllowlisted},
+		})
+		require.NoError(t, err)
+		resp, err := http.Post("http://"+addr+"/oauth/register", "application/json", bytes.NewReader(body))
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		require.GreaterOrEqual(t, resp.StatusCode, 400)
