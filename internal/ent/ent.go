@@ -14,6 +14,15 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/document"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/documentsnapshot"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthcode"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthstate"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthclient"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthprovidertoken"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshfamily"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshtoken"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrevokedjti"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthtokenmetadata"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthuserinfo"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/project"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/projectgroupshare"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/projectshare"
@@ -80,14 +89,23 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			document.Table:          document.ValidColumn,
-			documentsnapshot.Table:  documentsnapshot.ValidColumn,
-			project.Table:           project.ValidColumn,
-			projectgroupshare.Table: projectgroupshare.ValidColumn,
-			projectshare.Table:      projectshare.ValidColumn,
-			session.Table:           session.ValidColumn,
-			tenant.Table:            tenant.ValidColumn,
-			user.Table:              user.ValidColumn,
+			document.Table:           document.ValidColumn,
+			documentsnapshot.Table:   documentsnapshot.ValidColumn,
+			oauthauthcode.Table:      oauthauthcode.ValidColumn,
+			oauthauthstate.Table:     oauthauthstate.ValidColumn,
+			oauthclient.Table:        oauthclient.ValidColumn,
+			oauthprovidertoken.Table: oauthprovidertoken.ValidColumn,
+			oauthrefreshfamily.Table: oauthrefreshfamily.ValidColumn,
+			oauthrefreshtoken.Table:  oauthrefreshtoken.ValidColumn,
+			oauthrevokedjti.Table:    oauthrevokedjti.ValidColumn,
+			oauthtokenmetadata.Table: oauthtokenmetadata.ValidColumn,
+			oauthuserinfo.Table:      oauthuserinfo.ValidColumn,
+			project.Table:            project.ValidColumn,
+			projectgroupshare.Table:  projectgroupshare.ValidColumn,
+			projectshare.Table:       projectshare.ValidColumn,
+			session.Table:            session.ValidColumn,
+			tenant.Table:             tenant.ValidColumn,
+			user.Table:               user.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

@@ -12,6 +12,33 @@ type Document func(*sql.Selector)
 // DocumentSnapshot is the predicate function for documentsnapshot builders.
 type DocumentSnapshot func(*sql.Selector)
 
+// OAuthAuthCode is the predicate function for oauthauthcode builders.
+type OAuthAuthCode func(*sql.Selector)
+
+// OAuthAuthState is the predicate function for oauthauthstate builders.
+type OAuthAuthState func(*sql.Selector)
+
+// OAuthClient is the predicate function for oauthclient builders.
+type OAuthClient func(*sql.Selector)
+
+// OAuthProviderToken is the predicate function for oauthprovidertoken builders.
+type OAuthProviderToken func(*sql.Selector)
+
+// OAuthRefreshFamily is the predicate function for oauthrefreshfamily builders.
+type OAuthRefreshFamily func(*sql.Selector)
+
+// OAuthRefreshToken is the predicate function for oauthrefreshtoken builders.
+type OAuthRefreshToken func(*sql.Selector)
+
+// OAuthRevokedJTI is the predicate function for oauthrevokedjti builders.
+type OAuthRevokedJTI func(*sql.Selector)
+
+// OAuthTokenMetadata is the predicate function for oauthtokenmetadata builders.
+type OAuthTokenMetadata func(*sql.Selector)
+
+// OAuthUserInfo is the predicate function for oauthuserinfo builders.
+type OAuthUserInfo func(*sql.Selector)
+
 // Project is the predicate function for project builders.
 type Project func(*sql.Selector)
 
