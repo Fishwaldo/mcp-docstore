@@ -18,9 +18,11 @@ retrieves and edits it later. Documents live in **projects**, each document carr
 **overview** for quick scanning plus a longer markdown **body**, and every edit is versioned
 so nothing is lost.
 
-It is an OAuth **resource server**: it validates bearer tokens from your existing identity
-provider and resolves each caller to a **tenant** by email domain or address. Data is isolated
-per tenant, with org-wide, private, and shared projects.
+It is its own **OAuth 2.1 authorization server**: it federates login to your existing identity
+provider (Okta, or any OIDC IdP), mints its own audience-bound access tokens, and resolves each
+caller to a **tenant** by email domain or address. Data is isolated per tenant, with org-wide,
+private, and shared projects. Connecting an MCP client is paste-a-URL — no per-client OAuth app
+to register on your IdP.
 
 ## Features
 
@@ -69,11 +71,13 @@ database:
   driver: sqlite                          # sqlite | mysql | postgres
   dsn: "file:./data/docstore.db?_pragma=foreign_keys(1)"
 
-oidc:
+oidc:                                     # the UPSTREAM identity provider (login federation only)
   issuer: "https://idp.example.com"
-  audience: "mcp-docstore"                # the "aud" this resource server requires
-  email_claim: "email"
-  groups_claim: "groups"
+  client_id: "docstore-upstream-client-id"
+  client_secret: "docstore-upstream-client-secret"
+
+oauth:                                    # the embedded OAuth 2.1 authorization server (always on)
+  registration: "open"                    # "open" (default) | "allowlist"
 
 tenants:
   - key: acme
@@ -143,35 +147,103 @@ docker build -t mcp-docstore .
 
 ### Authentication
 
-Every request to the MCP endpoint (`/mcp`) must carry `Authorization: Bearer <JWT>`. The server
-verifies the token against the configured OIDC issuer (signature, `exp`, `iss`, and `aud`),
-resolves the email to a tenant, and rejects unknown identities with `401` plus a
-`WWW-Authenticate` challenge pointing at the
-[RFC 9728](https://datatracker.ietf.org/doc/rfc9728) protected-resource metadata.
+MCP DocStore is its own **OAuth 2.1 authorization server** (built on
+[mcp-oauth](https://github.com/giantswarm/mcp-oauth)): it federates login to your upstream IdP
+(the `oidc:` block) and mints its own short-lived, audience-bound access tokens for `/mcp`. It
+serves the full OAuth surface itself — `/oauth/{authorize,callback,token,revoke,register}` plus
+`/.well-known/{oauth-authorization-server,openid-configuration,oauth-protected-resource,jwks.json}`
+— so clients discover everything from the MCP URL alone; there is no separate Okta app per
+client.
+
+#### For users — connect an MCP client
+
+No client registration, no client ID/secret to obtain. Just point your client at the server:
+
+- **claude.ai** (custom connector): paste `{public_url}/mcp` as the connector URL. Dynamic
+  client registration (RFC 7591) and PKCE handle the rest.
+- **Claude Code**:
+  ```sh
+  claude mcp add --transport http docstore https://docs.example.com/mcp
+  ```
+  No `--client-id`, `--client-secret`, or `--callback-port` flags — open dynamic registration
+  plus RFC 8252 loopback redirects handle it.
+
+The first time a given client connects, DocStore shows a one-time **consent screen** ("`<client
+name>` wants to sign you in through this server's identity provider") before forwarding to your
+upstream IdP login. Approval is remembered (cookie-based, ~90 days); the first-party web UI is
+exempt and never shows it.
+
+#### For operators — deploy
+
+You need **exactly one** confidential OIDC client registered on your upstream IdP (e.g. one Okta
+app), with a single redirect URI:
+
+```
+{public_url}/oauth/callback
+```
+
+That one upstream client is shared by every downstream MCP client and the web UI — none of them
+talk to the IdP directly. No API Access Management / custom-authorization-server product is
+required on the IdP side; DocStore issues its own tokens.
+
+```yaml
+oidc:
+  issuer: "https://idp.example.com"
+  client_id: "docstore-upstream-client-id"
+  client_secret: "docstore-upstream-client-secret"
+  # allow_private_ip: true       # only for an internal IdP resolving to an RFC-1918/loopback address
+  # root_ca: "/etc/mcp-docstore/idp-ca.pem"   # PEM for an internal CA signing the IdP's certificate
+
+oauth:
+  registration: "open"           # "open" (default, any client may register) | "allowlist"
+  # registration_allowlist:      # required (>=1 https:// entry) when registration is "allowlist"
+  #   - "https://client.example.com/callback"
+```
+
+`oauth.registration: allowlist` confines dynamic client registration to an exact-match list of
+HTTPS redirect URIs — use it to restrict which third-party clients may ever register, instead of
+leaving registration open to anyone who can reach the server.
+
+Every request to `/mcp` carries `Authorization: Bearer <token>`; the server verifies its own
+signature (no network call to the IdP on this path), `exp`, `iss`, and `aud`, resolves the email
+to a tenant, and rejects unknown identities with `401` plus a `WWW-Authenticate` challenge
+pointing at the [RFC 9728](https://datatracker.ietf.org/doc/rfc9728) protected-resource metadata.
+
+**Rotating signing keys.** Signing keys are generated automatically on first boot and stored
+(alongside a master secret used to derive at-rest encryption and cookie-signing keys) in the
+`oauth_keys` database row. To rotate, delete that row and restart the server: it regenerates
+fresh key material immediately. This is a disruptive operational event — **every outstanding
+access and refresh token is invalidated**, and every MCP client and web UI user must re-login.
+
+> **Breaking change (upgrading from the resource-server version):** DocStore is no longer a pure
+> OAuth resource server — it now issues its own tokens. Removed config keys: `oidc.audience`
+> (the server fails fast at startup with a migration message if this is still set),
+> `oidc.email_claim`, `oidc.groups_claim`, `oidc.email_verified_policy`, `oidc.discovery_url`, and
+> the entire per-client web block (`web.client_id`, `web.client_secret`, `web.redirect_url`,
+> `web.post_logout_redirect_url`, `web.scopes`). Replace your old two-app Okta setup (one MCP
+> resource-server app, one web app) with the single upstream `oidc.client_id`/`client_secret`
+> client described above, plus the new `oauth:` block. Existing MCP clients and web UI sessions
+> must re-authenticate once against the new flow; there is no way to carry over a resource-server
+> bearer token.
 
 ### Web UI (optional, BFF)
 
 A browser-facing session layer can be enabled by adding a `web:` block to the config. It serves
-the single-page app at `/`, the OIDC login/callback/logout flow at `/auth/*`, and the read-only
-REST API at `/api/*`. The web UI requires a **separate confidential OIDC client** (e.g. an Okta
-app) configured to return `groups` and `email` claims; it must not share the MCP bearer-token
-client.
+the single-page app at `/`, the login/callback/logout flow at `/auth/*`, and the read-only REST
+API at `/api/*`. The web UI is a **first-party client of the embedded authorization server**,
+auto-seeded from server-derived key material on boot — it needs no OAuth client credentials or
+redirect URL of its own, only session cookie/timeout knobs:
 
 ```yaml
 web:
-  client_id: "0oaXXX..."
-  client_secret: "secret"
-  redirect_url: "https://docs.example.com/auth/callback"
-  post_logout_redirect_url: "https://docs.example.com/"
-  scopes: ["openid", "email", "profile", "groups"]
   cookie_secure: true           # set false only for local HTTP dev
   idle_timeout: 24h
   absolute_timeout: 168h
   sweep_interval: 1h
 ```
 
-When `web:` is absent the server is MCP-only: `/mcp` is the sole active endpoint and `/`
-returns 404.
+When `web:` is absent the server is MCP-only: `/mcp` (plus the OAuth/discovery routes) is the
+active surface and `/` returns 404.
 
 ## Architecture
 
@@ -181,7 +253,8 @@ Layered, with each package owning one job:
 |---|---|
 | `internal/config` | Viper config load + validation |
 | `internal/tenant` | email/domain → tenant resolution + admin lookup |
-| `internal/auth` | OIDC token verification, identity resolution (SDK `TokenVerifier`) |
+| `internal/auth` | token verification (local self-issued JWTs + upstream OIDC), identity resolution (SDK `TokenVerifier`) |
+| `internal/oauthsrv` | embedded OAuth 2.1 authorization server: signing keys, upstream federation, consent gate, route mounting |
 | `internal/ent` | generated [ent](https://entgo.io) data layer |
 | `internal/store` | repository: the access rule, tenant scoping, optimistic concurrency, snapshots |
 | `internal/docs` | goldmark markdown section editing + diffs |
@@ -195,9 +268,9 @@ Built on the [Go MCP SDK](https://github.com/modelcontextprotocol/go-sdk).
 ## Development
 
 ```sh
-go test ./...                              # full suite (uses in-memory SQLite)
-go test -race ./internal/mcp/... ./cmd/... # race detector on the concurrent paths
-go generate ./...                          # regenerate ent after a schema change
+go test ./...                                                          # full suite (uses in-memory SQLite)
+go test -race ./internal/mcp/... ./cmd/... ./internal/oauthsrv/...     # race detector on the concurrent paths
+go generate ./...                                                      # regenerate ent after a schema change
 ```
 
 ## License
