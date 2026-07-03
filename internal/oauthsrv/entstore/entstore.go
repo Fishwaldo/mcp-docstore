@@ -26,10 +26,11 @@ type Store struct {
 }
 
 // Interface compliance for the parts implemented so far. The remaining storage interfaces
-// (TokenStore, FlowStore, and the optional extensions) are added by later methods on Store.
+// (TokenStore and the optional extensions) are added by later methods on Store.
 var (
 	_ storage.ClientStore     = (*Store)(nil)
 	_ storage.ClientIPTracker = (*Store)(nil)
+	_ storage.FlowStore       = (*Store)(nil)
 )
 
 // New constructs a Store over the given ent client. enc encrypts sensitive token fields at
