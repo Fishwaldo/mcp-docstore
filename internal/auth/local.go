@@ -37,7 +37,16 @@ type LocalVerifier struct {
 // JWKS fetch, no network dependency on our own public URL. It enforces issuer, audience,
 // expiry, and (when the token carries jti/family_id claims) the revocation and family state
 // via rc.
+//
+// It panics on an empty audience: with an empty want, audienceMatches would accept any token
+// carrying an empty "aud" entry, so a miswired empty audience must fail loudly at boot rather
+// than silently widen what this verifier accepts on the request hot path. Construction is
+// boot-time, so a panic here is a startup failure, never a per-request one — mirroring
+// NewOIDCVerifier, which returns an error for the same condition.
 func NewLocalVerifier(issuer, audience string, keys []crypto.PublicKey, rc RevocationChecker) *LocalVerifier {
+	if normalizeAudience(audience) == "" {
+		panic("auth: NewLocalVerifier requires a non-empty audience")
+	}
 	cfg := &oidc.Config{
 		// The audience check is done ourselves after Verify, so we can normalize away a
 		// trailing slash on either side (go-oidc's built-in check is an exact-membership

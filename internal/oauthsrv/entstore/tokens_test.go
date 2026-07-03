@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthprovidertoken"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshtoken"
 )
 
@@ -208,7 +209,10 @@ func TestAtomicGetAndDeleteRefreshToken(t *testing.T) {
 	ctx := context.Background()
 
 	providerToken := testProviderToken()
-	require.NoError(t, s.SaveToken(ctx, "user-1", providerToken))
+	// The mcp-oauth library caches the provider token under the raw refresh token, and the
+	// atomic gate reads it back by that same key — so the cached token is keyed by the refresh
+	// token value, not by the user id.
+	require.NoError(t, s.SaveToken(ctx, "atomic-refresh-1", providerToken))
 	require.NoError(t, s.SaveRefreshToken(ctx, "atomic-refresh-1", "user-1", time.Now().Add(time.Hour)))
 
 	// (a) success returns userID, clientID, and the cached provider token.
@@ -257,13 +261,66 @@ func TestAtomicGetAndDeleteRefreshTokenAbsentProviderToken(t *testing.T) {
 	require.Nil(t, tok)
 }
 
+// TestAtomicGetAndDeleteReadsByRefreshKeyNotLoginRow locks the refresh-key read semantics. The
+// mcp-oauth library caches the provider token under multiple keys for one login — the user id at
+// interactive login, then the freshly issued refresh token on every rotation. The login-keyed
+// row is written once and never renewed, so it expires after providerTokenTTL; the refresh-keyed
+// row is rewritten with a full TTL on each rotation. The atomic gate MUST read the refresh-keyed
+// row: reading the login row instead would cap every session at providerTokenTTL and, once it
+// lapsed, make the library misread a legitimate refresh as token reuse and revoke the family.
+func TestAtomicGetAndDeleteReadsByRefreshKeyNotLoginRow(t *testing.T) {
+	s, client := newTestEntStore(t)
+	ctx := context.Background()
+
+	const refreshTok = "rotated-refresh-token"
+
+	// Login-time row keyed by the user id, then aged past its TTL to model a session that has
+	// lived longer than providerTokenTTL since login.
+	require.NoError(t, s.SaveToken(ctx, "user-1", testProviderToken()))
+	n, err := client.OAuthProviderToken.Update().
+		Where(oauthprovidertoken.UserID(hashToken("user-1"))).
+		SetExpiresAt(time.Now().Add(-time.Minute)).
+		Save(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+
+	// The most recent rotation re-saved the provider token under the current refresh token with
+	// a fresh TTL, and issued that refresh token.
+	require.NoError(t, s.SaveToken(ctx, refreshTok, testProviderToken()))
+	require.NoError(t, s.SaveRefreshToken(ctx, refreshTok, "user-1", time.Now().Add(time.Hour)))
+
+	// The refresh must succeed off the fresh refresh-keyed row despite the expired login row.
+	userID, _, tok, err := s.AtomicGetAndDeleteRefreshToken(ctx, refreshTok)
+	require.NoError(t, err)
+	require.Equal(t, "user-1", userID)
+	require.NotNil(t, tok)
+	require.Equal(t, testProviderToken().AccessToken, tok.AccessToken)
+}
+
+// TestSaveTokenNeverStoresRawKey guards the at-rest hashing: the provider-token lookup key (a
+// raw access/refresh token when the library keys by one) must be persisted only as its SHA-256
+// hash, never verbatim, so a database read yields no replayable credential.
+func TestSaveTokenNeverStoresRawKey(t *testing.T) {
+	s, client := newTestEntStore(t)
+	ctx := context.Background()
+
+	const rawRefresh = "super-secret-raw-access-or-refresh-token"
+	require.NoError(t, s.SaveToken(ctx, rawRefresh, testProviderToken()))
+
+	row, err := client.OAuthProviderToken.Query().Only(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, rawRefresh, row.UserID)
+	require.Equal(t, hashToken(rawRefresh), row.UserID)
+}
+
 func TestAtomicGetAndDeleteRefreshTokenConcurrentSingleWinner(t *testing.T) {
 	s, client := newTestEntStore(t)
 	ctx := context.Background()
 
-	// The winner also loads the cached provider token, so give the user one; without it every
-	// caller would legitimately get ErrTokenNotFound and there would be no winner to single out.
-	require.NoError(t, s.SaveToken(ctx, "user-1", testProviderToken()))
+	// The winner also loads the cached provider token, keyed by the refresh token value; without
+	// it every caller would legitimately get ErrTokenNotFound and there would be no winner to
+	// single out.
+	require.NoError(t, s.SaveToken(ctx, "race-refresh", testProviderToken()))
 	require.NoError(t, s.SaveRefreshToken(ctx, "race-refresh", "user-1", time.Now().Add(time.Hour)))
 
 	const goroutines = 8

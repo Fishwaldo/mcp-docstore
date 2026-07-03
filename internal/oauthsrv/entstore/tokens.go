@@ -18,12 +18,14 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthuserinfo"
 )
 
-// getProviderToken loads and decrypts the cached upstream provider token for a user. Both a
-// missing row and an expired one are reported as storage.ErrTokenNotFound: the caller (GetToken
-// and the refresh-token atomic gate) has no use for a stale cached token, so a stale one and an
-// absent one are equally "nothing to return."
-func (s *Store) getProviderToken(ctx context.Context, userID string) (*oauth2.Token, error) {
-	row, err := s.client.OAuthProviderToken.Query().Where(oauthprovidertoken.UserID(userID)).Only(ctx)
+// getProviderToken loads and decrypts the cached upstream provider token stored under key. The
+// key is whatever opaque value the mcp-oauth library uses to reach this token (a raw access or
+// refresh token, or the user id at login); it is looked up by its SHA-256 hash, matching how
+// SaveToken/DeleteToken write and delete it. Both a missing row and an expired one are reported
+// as storage.ErrTokenNotFound: the caller (GetToken and the refresh-token atomic gate) has no
+// use for a stale cached token, so a stale one and an absent one are equally "nothing to return."
+func (s *Store) getProviderToken(ctx context.Context, key string) (*oauth2.Token, error) {
+	row, err := s.client.OAuthProviderToken.Query().Where(oauthprovidertoken.UserID(hashToken(key))).Only(ctx)
 	if err != nil {
 		if ent.IsNotFound(err) {
 			return nil, storage.ErrTokenNotFound
@@ -36,11 +38,16 @@ func (s *Store) getProviderToken(ctx context.Context, userID string) (*oauth2.To
 	return s.decodeProviderToken(row.TokenJSON)
 }
 
-// SaveToken upserts the cached upstream provider token for a user, refreshing its expiry to
-// now+providerTokenTTL on every save (including re-saves of an existing user's token).
-func (s *Store) SaveToken(ctx context.Context, userID string, token *oauth2.Token) error {
-	if userID == "" {
-		return errors.New("userID cannot be empty")
+// SaveToken upserts the cached upstream provider token under key, refreshing its expiry to
+// now+providerTokenTTL on every save (including re-saves under an existing key). The mcp-oauth
+// library calls this under several keys for the same login — the user id, the raw access token,
+// and the raw refresh token — so on each refresh rotation the row keyed by the new refresh token
+// is written afresh with a full TTL; the atomic gate reads back by that same refresh-token key,
+// which is what lets a session outlive the provider-token TTL as long as it keeps rotating. The
+// key is stored as its SHA-256 hash so a leaked database yields no replayable raw token.
+func (s *Store) SaveToken(ctx context.Context, key string, token *oauth2.Token) error {
+	if key == "" {
+		return errors.New("key cannot be empty")
 	}
 	if token == nil {
 		return errors.New("token cannot be nil")
@@ -52,7 +59,7 @@ func (s *Store) SaveToken(ctx context.Context, userID string, token *oauth2.Toke
 	}
 	expiresAt := time.Now().Add(s.providerTokenTTL)
 
-	existing, err := s.client.OAuthProviderToken.Query().Where(oauthprovidertoken.UserID(userID)).Only(ctx)
+	existing, err := s.client.OAuthProviderToken.Query().Where(oauthprovidertoken.UserID(hashToken(key))).Only(ctx)
 	switch {
 	case err == nil:
 		return existing.Update().
@@ -61,7 +68,7 @@ func (s *Store) SaveToken(ctx context.Context, userID string, token *oauth2.Toke
 			Exec(ctx)
 	case ent.IsNotFound(err):
 		return s.client.OAuthProviderToken.Create().
-			SetUserID(userID).
+			SetUserID(hashToken(key)).
 			SetTokenJSON(encoded).
 			SetExpiresAt(expiresAt).
 			Exec(ctx)
@@ -70,16 +77,16 @@ func (s *Store) SaveToken(ctx context.Context, userID string, token *oauth2.Toke
 	}
 }
 
-// GetToken retrieves the cached upstream provider token for a user, returning
-// storage.ErrTokenNotFound when there is none or it has expired.
-func (s *Store) GetToken(ctx context.Context, userID string) (*oauth2.Token, error) {
-	return s.getProviderToken(ctx, userID)
+// GetToken retrieves the cached upstream provider token stored under key (see getProviderToken
+// for the key semantics), returning storage.ErrTokenNotFound when there is none or it has expired.
+func (s *Store) GetToken(ctx context.Context, key string) (*oauth2.Token, error) {
+	return s.getProviderToken(ctx, key)
 }
 
-// DeleteToken removes the cached upstream provider token for a user. Deleting an already-gone
-// token is a no-op, not an error.
-func (s *Store) DeleteToken(ctx context.Context, userID string) error {
-	_, err := s.client.OAuthProviderToken.Delete().Where(oauthprovidertoken.UserID(userID)).Exec(ctx)
+// DeleteToken removes the cached upstream provider token stored under key, looking it up by the
+// same SHA-256 hash SaveToken wrote. Deleting an already-gone token is a no-op, not an error.
+func (s *Store) DeleteToken(ctx context.Context, key string) error {
+	_, err := s.client.OAuthProviderToken.Delete().Where(oauthprovidertoken.UserID(hashToken(key))).Exec(ctx)
 	return err
 }
 
@@ -218,12 +225,21 @@ func (s *Store) AtomicGetAndDeleteRefreshToken(ctx context.Context, refreshToken
 	if time.Now().After(row.ExpiresAt) {
 		return "", "", nil, storage.ErrTokenExpired
 	}
+	// Read the provider token by the REFRESH-TOKEN key, not by the user id. The mcp-oauth
+	// library re-saves the provider token under each newly issued refresh token on every
+	// rotation, so this key carries a full, freshly renewed TTL; reading by the user id would
+	// instead find only the row written once at login, which expires after providerTokenTTL and
+	// is never renewed — capping every session at that TTL and, once it lapsed, making the
+	// library misread a legitimate refresh as refresh-token reuse and revoke the whole family.
+	// Matches the memory backend, which reads s.tokens[refreshToken] here.
+	//
 	// An absent or expired cached provider token must propagate as ErrTokenNotFound, NOT be
 	// swallowed into a (…, nil, nil) success: the mcp-oauth refresh handler dereferences the
 	// returned provider token unconditionally (server/refresh.go passes
 	// providerToken.RefreshToken to the upstream provider), so returning a nil token here would
-	// be a nil-pointer DoS. getProviderToken already maps both cases to ErrTokenNotFound.
-	tok, err := s.getProviderToken(ctx, row.UserID)
+	// be a nil-pointer DoS. getProviderToken already maps both cases to ErrTokenNotFound, which
+	// is exactly what the memory backend returns when its provider token is missing.
+	tok, err := s.getProviderToken(ctx, refreshToken)
 	if err != nil {
 		return "", "", nil, err
 	}

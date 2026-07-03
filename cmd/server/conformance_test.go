@@ -499,8 +499,9 @@ func TestOAuthConformance(t *testing.T) {
 	})
 
 	// Scenario 5: revoking an access token via /oauth/revoke must make LocalVerifier reject
-	// it on the very next /mcp call. This is the jti-keying cross-layer validation: see
-	// task-5-report.md for the full analysis of why this is expected to pass.
+	// it on the very next /mcp call. This exercises the jti-keying cross-layer contract:
+	// /oauth/revoke records the token's jti on the denylist, and LocalVerifier.Verify checks
+	// that denylist, so a just-revoked token must fail verification without any token refresh.
 	t.Run("Revocation", func(t *testing.T) {
 		redirectURI := "https://" + conformanceRedirectURIHost + "/cb5"
 		clientID, clientSecret, _ := registerClient(t, addr, redirectURI, "Conformance Client 5")

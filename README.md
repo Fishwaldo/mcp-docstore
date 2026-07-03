@@ -186,6 +186,11 @@ That one upstream client is shared by every downstream MCP client and the web UI
 talk to the IdP directly. No API Access Management / custom-authorization-server product is
 required on the IdP side; DocStore issues its own tokens.
 
+Grant the upstream app the **`offline_access`** scope (it is in the default `oidc.scopes`). The
+IdP only returns a refresh token when this scope is granted, and DocStore needs that upstream
+refresh token to renew its cached provider token as sessions rotate. Without it, refreshes fail
+once the cached provider token lapses and clients are forced back through full login.
+
 ```yaml
 oidc:
   issuer: "https://idp.example.com"

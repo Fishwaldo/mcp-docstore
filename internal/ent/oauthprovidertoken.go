@@ -21,7 +21,7 @@ type OAuthProviderToken struct {
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UserID holds the value of the "user_id" field.
-	UserID string `json:"user_id,omitempty"`
+	UserID string `json:"-"`
 	// TokenJSON holds the value of the "token_json" field.
 	TokenJSON string `json:"-"`
 	// ExpiresAt holds the value of the "expires_at" field.
@@ -132,8 +132,7 @@ func (_m *OAuthProviderToken) String() string {
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))
 	builder.WriteString(", ")
-	builder.WriteString("user_id=")
-	builder.WriteString(_m.UserID)
+	builder.WriteString("user_id=<sensitive>")
 	builder.WriteString(", ")
 	builder.WriteString("token_json=<sensitive>")
 	builder.WriteString(", ")

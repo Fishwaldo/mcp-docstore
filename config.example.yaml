@@ -28,7 +28,10 @@ oidc:
   issuer: "https://idp.example.com"
   client_id: "docstore-upstream-client-id"
   client_secret: "docstore-upstream-client-secret"
-  scopes: ["openid", "profile", "email", "groups"]  # defaults shown; requested from the upstream IdP at login
+  scopes: ["openid", "profile", "email", "groups", "offline_access"]  # defaults shown; requested from the upstream IdP at login
+  # offline_access is required for token refresh: the upstream IdP app must be granted it so
+  # the IdP returns a refresh token. Without it, refreshes fail once the cached provider token
+  # lapses and clients must re-authenticate.
   discovery_timeout: 15s                            # bounds OIDC discovery + JWKS refresh HTTP calls
   # allow_private_ip: set true ONLY if the upstream IdP resolves to an RFC-1918 or loopback
   # address (e.g. an internal Dex/Keycloak on your LAN). Relaxes SSRF protection on the

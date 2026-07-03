@@ -53,7 +53,9 @@ type OIDC struct {
 	ClientID     string `mapstructure:"client_id"`
 	ClientSecret string `mapstructure:"client_secret"`
 	// Scopes are requested from the upstream IdP during login. Default
-	// [openid profile email groups].
+	// [openid profile email groups offline_access]. offline_access is required for the
+	// upstream to issue a refresh token; without it token refresh cannot work and the AS
+	// falls back to full re-authentication when its cached provider token lapses.
 	Scopes []string `mapstructure:"scopes"`
 	// AllowPrivateIP permits the upstream issuer/discovery/token endpoints to resolve to
 	// RFC-1918 or loopback addresses, relaxing the default SSRF protection. Only set this
@@ -138,7 +140,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("snapshot_retention", 10)
 	v.SetDefault("session_timeout", 2*time.Minute)
 	v.SetDefault("max_request_bytes", 4<<20)
-	v.SetDefault("oidc.scopes", []string{"openid", "profile", "email", "groups"})
+	v.SetDefault("oidc.scopes", []string{"openid", "profile", "email", "groups", "offline_access"})
 	v.SetDefault("oidc.discovery_timeout", 15*time.Second)
 	v.SetDefault("oauth.access_token_ttl", time.Hour)
 	v.SetDefault("oauth.refresh_token_ttl", 720*time.Hour)

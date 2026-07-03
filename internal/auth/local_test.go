@@ -30,6 +30,7 @@ type fakeRevocationChecker struct {
 	revokedJTIs   map[string]bool
 	families      map[string]*storage.RefreshTokenFamilyMetadata
 	familyLookErr error // returned (non-nil) for any family lookup not found in families
+	jtiLookErr    error // returned (non-nil) from IsJTIRevoked to simulate a storage failure
 }
 
 func newFakeRevocationChecker() *fakeRevocationChecker {
@@ -40,6 +41,9 @@ func newFakeRevocationChecker() *fakeRevocationChecker {
 }
 
 func (f *fakeRevocationChecker) IsJTIRevoked(ctx context.Context, jti string) (bool, error) {
+	if f.jtiLookErr != nil {
+		return false, f.jtiLookErr
+	}
 	return f.revokedJTIs[jti], nil
 }
 
@@ -249,4 +253,33 @@ func TestLocalVerifierFamilyStorageErrorFailsClosed(t *testing.T) {
 	if _, err := v.Verify(context.Background(), tok); err == nil {
 		t.Fatal("Verify() error = nil, want error when family storage lookup fails")
 	}
+}
+
+func TestLocalVerifierJTIStorageErrorFailsClosed(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	rc.jtiLookErr = errors.New("storage unavailable")
+	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+
+	claims := defaultClaims()
+	claims.JTI = "jti-x"
+	tok := mintToken(t, key, josejose.ES256, claims)
+
+	// A jti revocation lookup that errors must not be treated as "not revoked": Verify has
+	// to fail closed so a storage blip cannot let a possibly-revoked token through.
+	if _, err := v.Verify(context.Background(), tok); err == nil {
+		t.Fatal("Verify() error = nil, want error when jti revocation lookup fails")
+	}
+}
+
+func TestNewLocalVerifierEmptyAudiencePanics(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewLocalVerifier() did not panic on empty audience")
+		}
+	}()
+	// A trailing slash normalizes to empty and must be rejected the same as "".
+	NewLocalVerifier(testIssuer, "/", []crypto.PublicKey{key.Public()}, rc)
 }

@@ -69,7 +69,9 @@ func TestContract_AtomicGates(t *testing.T) {
 			TokenType:    "Bearer",
 			Expiry:       time.Now().Add(time.Hour),
 		}
-		require.NoError(t, s.SaveToken(ctx, "user-contract", providerToken))
+		// The provider token is cached under the refresh-token key: that is where the atomic
+		// gate reads it back, matching how the mcp-oauth library re-saves it on each rotation.
+		require.NoError(t, s.SaveToken(ctx, refreshToken, providerToken))
 		require.NoError(t, s.SaveRefreshToken(ctx, refreshToken, "user-contract", time.Now().Add(time.Hour)))
 
 		userID, _, gotToken, err := s.AtomicGetAndDeleteRefreshToken(ctx, refreshToken)
@@ -144,7 +146,9 @@ func TestContract_AtomicGates(t *testing.T) {
 			TokenType:    "Bearer",
 			Expiry:       time.Now().Add(time.Hour),
 		}
-		require.NoError(t, s.SaveToken(ctx, "user-contract", providerToken))
+		// The provider token is cached under the refresh-token key: that is where the atomic
+		// gate reads it back, matching how the mcp-oauth library re-saves it on each rotation.
+		require.NoError(t, s.SaveToken(ctx, refreshToken, providerToken))
 		require.NoError(t, s.SaveRefreshToken(ctx, refreshToken, "user-contract", time.Now().Add(time.Hour)))
 
 		var success, notFound atomic.Int32

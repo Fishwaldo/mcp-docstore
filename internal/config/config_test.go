@@ -122,7 +122,7 @@ oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secre
 `)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, []string{"openid", "profile", "email", "groups"}, cfg.OIDC.Scopes)
+	require.Equal(t, []string{"openid", "profile", "email", "groups", "offline_access"}, cfg.OIDC.Scopes)
 	require.Equal(t, 15*time.Second, cfg.OIDC.DiscoveryTimeout)
 	require.Equal(t, time.Hour, cfg.OAuth.AccessTokenTTL)
 	require.Equal(t, 720*time.Hour, cfg.OAuth.RefreshTokenTTL)
