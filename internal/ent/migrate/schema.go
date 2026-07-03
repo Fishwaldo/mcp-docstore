@@ -180,6 +180,28 @@ var (
 			},
 		},
 	}
+	// OauthConsentsColumns holds the columns for the "oauth_consents" table.
+	OauthConsentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeUUID},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "user_id", Type: field.TypeString},
+		{Name: "client_id", Type: field.TypeString},
+		{Name: "client_name", Type: field.TypeString},
+		{Name: "granted_at", Type: field.TypeTime},
+	}
+	// OauthConsentsTable holds the schema information for the "oauth_consents" table.
+	OauthConsentsTable = &schema.Table{
+		Name:       "oauth_consents",
+		Columns:    OauthConsentsColumns,
+		PrimaryKey: []*schema.Column{OauthConsentsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "oauthconsent_user_id_client_id",
+				Unique:  true,
+				Columns: []*schema.Column{OauthConsentsColumns[2], OauthConsentsColumns[3]},
+			},
+		},
+	}
 	// OauthKeysColumns holds the columns for the "oauth_keys" table.
 	OauthKeysColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeUUID},
@@ -544,6 +566,7 @@ var (
 		OauthAuthCodesTable,
 		OauthAuthStatesTable,
 		OauthClientsTable,
+		OauthConsentsTable,
 		OauthKeysTable,
 		OauthProviderTokensTable,
 		OauthRefreshFamiliesTable,

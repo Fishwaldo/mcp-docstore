@@ -21,6 +21,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthcode"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthstate"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthclient"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthconsent"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthkey"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthprovidertoken"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshfamily"
@@ -51,6 +52,8 @@ type Client struct {
 	OAuthAuthState *OAuthAuthStateClient
 	// OAuthClient is the client for interacting with the OAuthClient builders.
 	OAuthClient *OAuthClientClient
+	// OAuthConsent is the client for interacting with the OAuthConsent builders.
+	OAuthConsent *OAuthConsentClient
 	// OAuthKey is the client for interacting with the OAuthKey builders.
 	OAuthKey *OAuthKeyClient
 	// OAuthProviderToken is the client for interacting with the OAuthProviderToken builders.
@@ -93,6 +96,7 @@ func (c *Client) init() {
 	c.OAuthAuthCode = NewOAuthAuthCodeClient(c.config)
 	c.OAuthAuthState = NewOAuthAuthStateClient(c.config)
 	c.OAuthClient = NewOAuthClientClient(c.config)
+	c.OAuthConsent = NewOAuthConsentClient(c.config)
 	c.OAuthKey = NewOAuthKeyClient(c.config)
 	c.OAuthProviderToken = NewOAuthProviderTokenClient(c.config)
 	c.OAuthRefreshFamily = NewOAuthRefreshFamilyClient(c.config)
@@ -203,6 +207,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		OAuthAuthCode:      NewOAuthAuthCodeClient(cfg),
 		OAuthAuthState:     NewOAuthAuthStateClient(cfg),
 		OAuthClient:        NewOAuthClientClient(cfg),
+		OAuthConsent:       NewOAuthConsentClient(cfg),
 		OAuthKey:           NewOAuthKeyClient(cfg),
 		OAuthProviderToken: NewOAuthProviderTokenClient(cfg),
 		OAuthRefreshFamily: NewOAuthRefreshFamilyClient(cfg),
@@ -240,6 +245,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		OAuthAuthCode:      NewOAuthAuthCodeClient(cfg),
 		OAuthAuthState:     NewOAuthAuthStateClient(cfg),
 		OAuthClient:        NewOAuthClientClient(cfg),
+		OAuthConsent:       NewOAuthConsentClient(cfg),
 		OAuthKey:           NewOAuthKeyClient(cfg),
 		OAuthProviderToken: NewOAuthProviderTokenClient(cfg),
 		OAuthRefreshFamily: NewOAuthRefreshFamilyClient(cfg),
@@ -283,9 +289,10 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.Document, c.DocumentSnapshot, c.OAuthAuthCode, c.OAuthAuthState,
-		c.OAuthClient, c.OAuthKey, c.OAuthProviderToken, c.OAuthRefreshFamily,
-		c.OAuthRefreshToken, c.OAuthRevokedJTI, c.OAuthTokenMetadata, c.OAuthUserInfo,
-		c.Project, c.ProjectGroupShare, c.ProjectShare, c.Session, c.Tenant, c.User,
+		c.OAuthClient, c.OAuthConsent, c.OAuthKey, c.OAuthProviderToken,
+		c.OAuthRefreshFamily, c.OAuthRefreshToken, c.OAuthRevokedJTI,
+		c.OAuthTokenMetadata, c.OAuthUserInfo, c.Project, c.ProjectGroupShare,
+		c.ProjectShare, c.Session, c.Tenant, c.User,
 	} {
 		n.Use(hooks...)
 	}
@@ -296,9 +303,10 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.Document, c.DocumentSnapshot, c.OAuthAuthCode, c.OAuthAuthState,
-		c.OAuthClient, c.OAuthKey, c.OAuthProviderToken, c.OAuthRefreshFamily,
-		c.OAuthRefreshToken, c.OAuthRevokedJTI, c.OAuthTokenMetadata, c.OAuthUserInfo,
-		c.Project, c.ProjectGroupShare, c.ProjectShare, c.Session, c.Tenant, c.User,
+		c.OAuthClient, c.OAuthConsent, c.OAuthKey, c.OAuthProviderToken,
+		c.OAuthRefreshFamily, c.OAuthRefreshToken, c.OAuthRevokedJTI,
+		c.OAuthTokenMetadata, c.OAuthUserInfo, c.Project, c.ProjectGroupShare,
+		c.ProjectShare, c.Session, c.Tenant, c.User,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -317,6 +325,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.OAuthAuthState.mutate(ctx, m)
 	case *OAuthClientMutation:
 		return c.OAuthClient.mutate(ctx, m)
+	case *OAuthConsentMutation:
+		return c.OAuthConsent.mutate(ctx, m)
 	case *OAuthKeyMutation:
 		return c.OAuthKey.mutate(ctx, m)
 	case *OAuthProviderTokenMutation:
@@ -1106,6 +1116,139 @@ func (c *OAuthClientClient) mutate(ctx context.Context, m *OAuthClientMutation) 
 		return (&OAuthClientDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown OAuthClient mutation op: %q", m.Op())
+	}
+}
+
+// OAuthConsentClient is a client for the OAuthConsent schema.
+type OAuthConsentClient struct {
+	config
+}
+
+// NewOAuthConsentClient returns a client for the OAuthConsent from the given config.
+func NewOAuthConsentClient(c config) *OAuthConsentClient {
+	return &OAuthConsentClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `oauthconsent.Hooks(f(g(h())))`.
+func (c *OAuthConsentClient) Use(hooks ...Hook) {
+	c.hooks.OAuthConsent = append(c.hooks.OAuthConsent, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `oauthconsent.Intercept(f(g(h())))`.
+func (c *OAuthConsentClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OAuthConsent = append(c.inters.OAuthConsent, interceptors...)
+}
+
+// Create returns a builder for creating a OAuthConsent entity.
+func (c *OAuthConsentClient) Create() *OAuthConsentCreate {
+	mutation := newOAuthConsentMutation(c.config, OpCreate)
+	return &OAuthConsentCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OAuthConsent entities.
+func (c *OAuthConsentClient) CreateBulk(builders ...*OAuthConsentCreate) *OAuthConsentCreateBulk {
+	return &OAuthConsentCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OAuthConsentClient) MapCreateBulk(slice any, setFunc func(*OAuthConsentCreate, int)) *OAuthConsentCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OAuthConsentCreateBulk{err: fmt.Errorf("calling to OAuthConsentClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OAuthConsentCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OAuthConsentCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OAuthConsent.
+func (c *OAuthConsentClient) Update() *OAuthConsentUpdate {
+	mutation := newOAuthConsentMutation(c.config, OpUpdate)
+	return &OAuthConsentUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OAuthConsentClient) UpdateOne(_m *OAuthConsent) *OAuthConsentUpdateOne {
+	mutation := newOAuthConsentMutation(c.config, OpUpdateOne, withOAuthConsent(_m))
+	return &OAuthConsentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OAuthConsentClient) UpdateOneID(id uuid.UUID) *OAuthConsentUpdateOne {
+	mutation := newOAuthConsentMutation(c.config, OpUpdateOne, withOAuthConsentID(id))
+	return &OAuthConsentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OAuthConsent.
+func (c *OAuthConsentClient) Delete() *OAuthConsentDelete {
+	mutation := newOAuthConsentMutation(c.config, OpDelete)
+	return &OAuthConsentDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OAuthConsentClient) DeleteOne(_m *OAuthConsent) *OAuthConsentDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OAuthConsentClient) DeleteOneID(id uuid.UUID) *OAuthConsentDeleteOne {
+	builder := c.Delete().Where(oauthconsent.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OAuthConsentDeleteOne{builder}
+}
+
+// Query returns a query builder for OAuthConsent.
+func (c *OAuthConsentClient) Query() *OAuthConsentQuery {
+	return &OAuthConsentQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOAuthConsent},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OAuthConsent entity by its id.
+func (c *OAuthConsentClient) Get(ctx context.Context, id uuid.UUID) (*OAuthConsent, error) {
+	return c.Query().Where(oauthconsent.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OAuthConsentClient) GetX(ctx context.Context, id uuid.UUID) *OAuthConsent {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *OAuthConsentClient) Hooks() []Hook {
+	return c.hooks.OAuthConsent
+}
+
+// Interceptors returns the client interceptors.
+func (c *OAuthConsentClient) Interceptors() []Interceptor {
+	return c.inters.OAuthConsent
+}
+
+func (c *OAuthConsentClient) mutate(ctx context.Context, m *OAuthConsentMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OAuthConsentCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OAuthConsentUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OAuthConsentUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OAuthConsentDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OAuthConsent mutation op: %q", m.Op())
 	}
 }
 
@@ -3050,14 +3193,14 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 type (
 	hooks struct {
 		Document, DocumentSnapshot, OAuthAuthCode, OAuthAuthState, OAuthClient,
-		OAuthKey, OAuthProviderToken, OAuthRefreshFamily, OAuthRefreshToken,
-		OAuthRevokedJTI, OAuthTokenMetadata, OAuthUserInfo, Project, ProjectGroupShare,
-		ProjectShare, Session, Tenant, User []ent.Hook
+		OAuthConsent, OAuthKey, OAuthProviderToken, OAuthRefreshFamily,
+		OAuthRefreshToken, OAuthRevokedJTI, OAuthTokenMetadata, OAuthUserInfo, Project,
+		ProjectGroupShare, ProjectShare, Session, Tenant, User []ent.Hook
 	}
 	inters struct {
 		Document, DocumentSnapshot, OAuthAuthCode, OAuthAuthState, OAuthClient,
-		OAuthKey, OAuthProviderToken, OAuthRefreshFamily, OAuthRefreshToken,
-		OAuthRevokedJTI, OAuthTokenMetadata, OAuthUserInfo, Project, ProjectGroupShare,
-		ProjectShare, Session, Tenant, User []ent.Interceptor
+		OAuthConsent, OAuthKey, OAuthProviderToken, OAuthRefreshFamily,
+		OAuthRefreshToken, OAuthRevokedJTI, OAuthTokenMetadata, OAuthUserInfo, Project,
+		ProjectGroupShare, ProjectShare, Session, Tenant, User []ent.Interceptor
 	}
 )

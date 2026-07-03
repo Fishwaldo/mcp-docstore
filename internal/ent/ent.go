@@ -17,6 +17,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthcode"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthstate"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthclient"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthconsent"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthkey"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthprovidertoken"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshfamily"
@@ -95,6 +96,7 @@ func checkColumn(t, c string) error {
 			oauthauthcode.Table:      oauthauthcode.ValidColumn,
 			oauthauthstate.Table:     oauthauthstate.ValidColumn,
 			oauthclient.Table:        oauthclient.ValidColumn,
+			oauthconsent.Table:       oauthconsent.ValidColumn,
 			oauthkey.Table:           oauthkey.ValidColumn,
 			oauthprovidertoken.Table: oauthprovidertoken.ValidColumn,
 			oauthrefreshfamily.Table: oauthrefreshfamily.ValidColumn,

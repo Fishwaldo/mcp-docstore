@@ -69,6 +69,18 @@ func (f OAuthClientFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OAuthClientMutation", m)
 }
 
+// The OAuthConsentFunc type is an adapter to allow the use of ordinary
+// function as OAuthConsent mutator.
+type OAuthConsentFunc func(context.Context, *ent.OAuthConsentMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f OAuthConsentFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.OAuthConsentMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OAuthConsentMutation", m)
+}
+
 // The OAuthKeyFunc type is an adapter to allow the use of ordinary
 // function as OAuthKey mutator.
 type OAuthKeyFunc func(context.Context, *ent.OAuthKeyMutation) (ent.Value, error)

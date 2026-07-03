@@ -10,6 +10,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthcode"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthauthstate"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthclient"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthconsent"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthkey"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthprovidertoken"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/oauthrefreshfamily"
@@ -176,6 +177,31 @@ func init() {
 	oauthclientDescID := oauthclientMixinFields0[0].Descriptor()
 	// oauthclient.DefaultID holds the default value on creation for the id field.
 	oauthclient.DefaultID = oauthclientDescID.Default.(func() uuid.UUID)
+	oauthconsentMixin := schema.OAuthConsent{}.Mixin()
+	oauthconsentMixinFields0 := oauthconsentMixin[0].Fields()
+	_ = oauthconsentMixinFields0
+	oauthconsentFields := schema.OAuthConsent{}.Fields()
+	_ = oauthconsentFields
+	// oauthconsentDescCreatedAt is the schema descriptor for created_at field.
+	oauthconsentDescCreatedAt := oauthconsentMixinFields0[1].Descriptor()
+	// oauthconsent.DefaultCreatedAt holds the default value on creation for the created_at field.
+	oauthconsent.DefaultCreatedAt = oauthconsentDescCreatedAt.Default.(func() time.Time)
+	// oauthconsentDescClientID is the schema descriptor for client_id field.
+	oauthconsentDescClientID := oauthconsentFields[1].Descriptor()
+	// oauthconsent.ClientIDValidator is a validator for the "client_id" field. It is called by the builders before save.
+	oauthconsent.ClientIDValidator = oauthconsentDescClientID.Validators[0].(func(string) error)
+	// oauthconsentDescClientName is the schema descriptor for client_name field.
+	oauthconsentDescClientName := oauthconsentFields[2].Descriptor()
+	// oauthconsent.ClientNameValidator is a validator for the "client_name" field. It is called by the builders before save.
+	oauthconsent.ClientNameValidator = oauthconsentDescClientName.Validators[0].(func(string) error)
+	// oauthconsentDescGrantedAt is the schema descriptor for granted_at field.
+	oauthconsentDescGrantedAt := oauthconsentFields[3].Descriptor()
+	// oauthconsent.DefaultGrantedAt holds the default value on creation for the granted_at field.
+	oauthconsent.DefaultGrantedAt = oauthconsentDescGrantedAt.Default.(func() time.Time)
+	// oauthconsentDescID is the schema descriptor for id field.
+	oauthconsentDescID := oauthconsentMixinFields0[0].Descriptor()
+	// oauthconsent.DefaultID holds the default value on creation for the id field.
+	oauthconsent.DefaultID = oauthconsentDescID.Default.(func() uuid.UUID)
 	oauthkeyMixin := schema.OAuthKey{}.Mixin()
 	oauthkeyMixinFields0 := oauthkeyMixin[0].Fields()
 	_ = oauthkeyMixinFields0

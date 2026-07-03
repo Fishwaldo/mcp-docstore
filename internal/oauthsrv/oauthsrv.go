@@ -47,6 +47,10 @@ type Config struct {
 
 	TrustProxy        bool
 	TrustedProxyCount int
+
+	// CookieSecure marks the consent cookie (Task 3) as Secure (HTTPS-only). Mirrors the web
+	// BFF's cookie_secure setting — the caller threads the same resolved value through both.
+	CookieSecure bool
 }
 
 // Service bundles the assembled authorization server and its HTTP handler. Task 3 mounts the
