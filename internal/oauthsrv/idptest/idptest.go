@@ -25,6 +25,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"math/big"
 	"net"
 	"net/http"
@@ -63,9 +64,11 @@ type authRequest struct {
 // (auto-approves a fixed user), token, and userinfo. It lets the full authorization-server
 // flow run end-to-end without a real IdP.
 type Server struct {
-	URL     string         // issuer, "https://localhost:PORT"
-	User    User           // identity returned by userinfo (mutable between flows)
-	RootCAs *x509.CertPool // trusts this server's self-signed certificate
+	URL       string         // issuer, "https://localhost:PORT"
+	User      User           // identity returned by userinfo (mutable between flows)
+	RootCAs   *x509.CertPool // trusts this server's self-signed certificate
+	CACertPEM []byte         // PEM encoding of the same certificate, for callers that need a file
+	// (e.g. config.Load's oidc.root_ca) rather than an in-process *x509.CertPool.
 
 	ts         *httptest.Server
 	signingKey *rsa.PrivateKey
@@ -130,6 +133,7 @@ func New(t *testing.T) *Server {
 	s.ts = ts
 	s.URL = "https://localhost:" + u.Port()
 	s.RootCAs = pool
+	s.CACertPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
 
 	return s
 }
