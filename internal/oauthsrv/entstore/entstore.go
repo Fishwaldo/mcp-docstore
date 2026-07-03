@@ -28,10 +28,18 @@ type Store struct {
 }
 
 // Store implements the full mcp-oauth storage.Combined interface (TokenStore, ClientStore,
-// and FlowStore), plus the optional ClientIPTracker extension.
+// and FlowStore), plus the optional ClientIPTracker, RefreshTokenFamilyStore,
+// RefreshTokenFamilyByIDStore, RevokedTokenStore, TokenRevocationStore, TokenMetadataStore,
+// and TokenMetadataGetter extensions.
 var (
-	_ storage.Combined        = (*Store)(nil)
-	_ storage.ClientIPTracker = (*Store)(nil)
+	_ storage.Combined                    = (*Store)(nil)
+	_ storage.ClientIPTracker             = (*Store)(nil)
+	_ storage.RefreshTokenFamilyStore     = (*Store)(nil)
+	_ storage.RefreshTokenFamilyByIDStore = (*Store)(nil)
+	_ storage.RevokedTokenStore           = (*Store)(nil)
+	_ storage.TokenRevocationStore        = (*Store)(nil)
+	_ storage.TokenMetadataStore          = (*Store)(nil)
+	_ storage.TokenMetadataGetter         = (*Store)(nil)
 )
 
 // New constructs a Store over the given ent client. enc encrypts sensitive token fields at
