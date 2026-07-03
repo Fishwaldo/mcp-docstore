@@ -5,6 +5,7 @@ package web
 
 import (
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/Fishwaldo/mcp-docstore/internal/app"
@@ -14,17 +15,24 @@ import (
 
 // Config holds the BFF's OAuth client settings and session policy. Defaults (cookie name,
 // timeouts) are applied by the caller that builds it from the app config.
+//
+// The BFF is a first-party confidential client of DocStore's OWN embedded authorization
+// server (internal/oauthsrv), not of the upstream IdP directly: Issuer is that server's
+// public URL, and Transport carries the BFF's server-to-server calls (token exchange,
+// revocation) to it in-process, so the server never needs to dial its own public_url. Browser
+// redirects (AuthCodeURL) still target Issuer directly since the browser must hop there over
+// the real network.
 type Config struct {
-	ClientID              string
-	ClientSecret          string
-	RedirectURL           string
-	PostLogoutRedirectURL string
-	Scopes                []string
-	CookieName            string
-	CookieSecure          bool
-	IdleTimeout           time.Duration
-	AbsoluteTimeout       time.Duration
-	SweepInterval         time.Duration
+	ClientID        string
+	ClientSecret    string
+	Issuer          string
+	RedirectURL     string
+	Transport       http.RoundTripper
+	CookieName      string
+	CookieSecure    bool
+	IdleTimeout     time.Duration
+	AbsoluteTimeout time.Duration
+	SweepInterval   time.Duration
 }
 
 // Server holds the BFF dependencies. It is transport-only: all data access goes through

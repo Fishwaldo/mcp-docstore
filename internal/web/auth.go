@@ -6,6 +6,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -88,16 +89,48 @@ func (s *Server) createSession(ctx context.Context, w http.ResponseWriter, claim
 	return nil
 }
 
-// HandleLogout deletes the current session and clears the cookies.
+// HandleLogout revokes the session's refresh token at the authorization server, deletes the
+// session, and clears the cookies. Revocation is best-effort: RFC 7009 §2.2 has the client
+// treat revocation as fire-and-forget, and a failure here must never block the user from
+// logging out locally.
 func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(s.cfg.CookieName); err == nil && c.Value != "" {
-		_ = s.store.DeleteSessionByTokenHash(r.Context(), hashToken(c.Value))
+		hash := hashToken(c.Value)
+		if sess, err := s.store.SessionByTokenHash(r.Context(), hash); err == nil && sess.RefreshToken != "" {
+			s.revokeRefreshToken(r.Context(), sess.RefreshToken)
+		}
+		_ = s.store.DeleteSessionByTokenHash(r.Context(), hash)
 	}
 	clearCookie(w, s.cfg.CookieName, s.cfg.CookieSecure)
 	clearCookie(w, csrfCookieName, s.cfg.CookieSecure)
-	dest := s.cfg.PostLogoutRedirectURL
-	if dest == "" {
-		dest = "/"
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// revokeRefreshToken POSTs an RFC 7009 revocation request for refreshToken to the
+// authorization server, over s.cfg.Transport (in-process; see Config.Transport). Errors are
+// logged, not returned: the local session is torn down regardless of whether the AS could be
+// reached.
+func (s *Server) revokeRefreshToken(ctx context.Context, refreshToken string) {
+	form := url.Values{
+		"token":           {refreshToken},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {s.cfg.ClientID},
+		"client_secret":   {s.cfg.ClientSecret},
 	}
-	http.Redirect(w, r, dest, http.StatusFound)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.Issuer+"/oauth/revoke", strings.NewReader(form.Encode()))
+	if err != nil {
+		s.log.WarnContext(ctx, "logout revoke request build failed", "error", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Transport: s.cfg.Transport}
+	resp, err := client.Do(req)
+	if err != nil {
+		s.log.WarnContext(ctx, "logout revoke request failed", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		s.log.WarnContext(ctx, "logout revoke returned non-200 status", "status", resp.StatusCode)
+	}
 }

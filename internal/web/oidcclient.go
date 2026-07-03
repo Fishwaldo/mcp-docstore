@@ -6,93 +6,75 @@ package web
 import (
 	"context"
 	"fmt"
+	"net/http"
 
-	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
 	"github.com/Fishwaldo/mcp-docstore/internal/auth"
 )
 
-// authClient runs the OIDC Authorization Code + PKCE flow. It is an interface so handler
-// tests can substitute a fake without a live IdP token endpoint; the production
-// implementation talks to the real provider.
+// authClient runs the OAuth Authorization Code + PKCE flow. It is an interface so handler
+// tests can substitute a fake without a live authorization server; the production
+// implementation talks to DocStore's own embedded authorization server (internal/oauthsrv).
 type authClient interface {
 	AuthCodeURL(state, verifier string) string
 	Exchange(ctx context.Context, code, verifier string) (claims *auth.Claims, rawIDToken string, tok *oauth2.Token, err error)
 }
 
-type oidcClient struct {
-	oauth       *oauth2.Config
-	verifier    *oidc.IDTokenVerifier
-	groupsClaim string
+// accessTokenVerifier validates a DocStore-issued access token and maps it to identity claims.
+// Satisfied by *auth.LocalVerifier; declared here (rather than imported) so this file only
+// depends on the one method it calls.
+type accessTokenVerifier interface {
+	Verify(ctx context.Context, rawToken string) (*auth.Claims, error)
 }
 
-// NewOIDCClient discovers the provider and builds the OAuth + ID-token verifier wiring.
-func NewOIDCClient(ctx context.Context, issuer string, cfg Config, groupsClaim string) (authClient, error) {
-	provider, err := oidc.NewProvider(ctx, issuer)
-	if err != nil {
-		return nil, fmt.Errorf("oidc discovery: %w", err)
-	}
-	return &oidcClient{
+// asClient is the BFF's OAuth client against DocStore's own embedded authorization server.
+// Unlike the upstream-IdP client it replaces, there is no separate OIDC id_token to verify:
+// the AS mints RFC 9068 JWT access tokens directly, so Exchange verifies tok.AccessToken itself
+// against the injected verifier — no JWKS fetch, no dependency on our own public URL being
+// reachable from inside the process for that step.
+type asClient struct {
+	oauth     *oauth2.Config
+	verifier  accessTokenVerifier
+	transport http.RoundTripper
+}
+
+// NewASClient builds an authClient for issuer, DocStore's own authorization server. Browser-
+// facing URLs (AuthCodeURL) point at issuer directly since the browser must hop there over the
+// real network; transport carries only the server-to-server Exchange call, so the BFF process
+// never needs to dial its own public URL to complete a login.
+func NewASClient(issuer, clientID, clientSecret, redirectURL string, verifier accessTokenVerifier, transport http.RoundTripper) *asClient {
+	return &asClient{
 		oauth: &oauth2.Config{
-			ClientID:     cfg.ClientID,
-			ClientSecret: cfg.ClientSecret,
-			Endpoint:     provider.Endpoint(),
-			RedirectURL:  cfg.RedirectURL,
-			Scopes:       cfg.Scopes,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  issuer + "/oauth/authorize",
+				TokenURL: issuer + "/oauth/token",
+			},
+			RedirectURL: redirectURL,
+			Scopes:      []string{"openid", "profile", "email", "groups", "offline_access"},
 		},
-		verifier:    provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		groupsClaim: groupsClaim,
-	}, nil
+		verifier:  verifier,
+		transport: transport,
+	}
 }
 
-func (c *oidcClient) AuthCodeURL(state, verifier string) string {
+func (c *asClient) AuthCodeURL(state, verifier string) string {
 	return c.oauth.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
 }
 
-func (c *oidcClient) Exchange(ctx context.Context, code, verifier string) (*auth.Claims, string, *oauth2.Token, error) {
+func (c *asClient) Exchange(ctx context.Context, code, verifier string) (*auth.Claims, string, *oauth2.Token, error) {
+	if c.transport != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Transport: c.transport})
+	}
 	tok, err := c.oauth.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("token exchange: %w", err)
 	}
-	rawID, ok := tok.Extra("id_token").(string)
-	if !ok || rawID == "" {
-		return nil, "", nil, fmt.Errorf("token response missing id_token")
-	}
-	idt, err := c.verifier.Verify(ctx, rawID)
+	claims, err := c.verifier.Verify(ctx, tok.AccessToken)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("verify id_token: %w", err)
+		return nil, "", nil, fmt.Errorf("verify access token: %w", err)
 	}
-	var raw map[string]any
-	if err := idt.Claims(&raw); err != nil {
-		return nil, "", nil, fmt.Errorf("parse id_token claims: %w", err)
-	}
-	claims := &auth.Claims{
-		Subject: idt.Subject,
-		Email:   stringClaim(raw, "email"),
-		Groups:  stringSliceClaim(raw, c.groupsClaim),
-		Expiry:  idt.Expiry,
-	}
-	return claims, rawID, tok, nil
-}
-
-func stringClaim(m map[string]any, key string) string {
-	if v, ok := m[key].(string); ok {
-		return v
-	}
-	return ""
-}
-
-func stringSliceClaim(m map[string]any, key string) []string {
-	v, ok := m[key].([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(v))
-	for _, e := range v {
-		if s, ok := e.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
+	return claims, tok.AccessToken, tok, nil
 }
