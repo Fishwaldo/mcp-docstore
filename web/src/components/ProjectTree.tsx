@@ -2,9 +2,35 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus } from "lucide-react";
-import { listProjects, listDocuments } from "@/lib/api";
+import { listProjects, listDocuments, type DocumentSummaryDTO } from "@/lib/api";
 
-function ProjectItem({ projectId, projectName }: { projectId: string; projectName: string }) {
+type DocOrder = "title" | "recent";
+
+const DOC_ORDER_KEY = "docOrder";
+
+function getInitialDocOrder(): DocOrder {
+  const stored = localStorage.getItem(DOC_ORDER_KEY);
+  return stored === "recent" ? "recent" : "title";
+}
+
+function sortDocuments(
+  documents: DocumentSummaryDTO[],
+  order: DocOrder,
+): DocumentSummaryDTO[] {
+  return order === "recent"
+    ? [...documents].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    : [...documents].sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function ProjectItem({
+  projectId,
+  projectName,
+  order,
+}: {
+  projectId: string;
+  projectName: string;
+  order: DocOrder;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   const { data: documents, isLoading } = useQuery({
@@ -12,6 +38,8 @@ function ProjectItem({ projectId, projectName }: { projectId: string; projectNam
     queryFn: () => listDocuments(projectId),
     enabled: expanded,
   });
+
+  const sortedDocuments = documents ? sortDocuments(documents, order) : documents;
 
   return (
     <div>
@@ -37,7 +65,7 @@ function ProjectItem({ projectId, projectName }: { projectId: string; projectNam
           {isLoading && (
             <div className="px-2 py-1 text-xs text-muted-foreground">Loading…</div>
           )}
-          {documents?.map((doc) => (
+          {sortedDocuments?.map((doc) => (
             <Link
               key={doc.id}
               to={`/documents/${doc.id}`}
@@ -58,6 +86,7 @@ function ProjectItem({ projectId, projectName }: { projectId: string; projectNam
 export default function ProjectTree() {
   const navigate = useNavigate();
   const [searchValue, setSearchValue] = useState("");
+  const [order, setOrder] = useState<DocOrder>(() => getInitialDocOrder());
 
   const { data: projects, isLoading, isError } = useQuery({
     queryKey: ["projects"],
@@ -69,6 +98,11 @@ export default function ProjectTree() {
     if (searchValue.trim()) {
       navigate(`/search?q=${encodeURIComponent(searchValue.trim())}`);
     }
+  }
+
+  function handleOrderChange(next: DocOrder) {
+    setOrder(next);
+    localStorage.setItem(DOC_ORDER_KEY, next);
   }
 
   return (
@@ -93,6 +127,33 @@ export default function ProjectTree() {
         </Link>
       </div>
 
+      <div className="flex items-center gap-0.5 rounded-md border border-input p-0.5 text-xs">
+        <button
+          type="button"
+          onClick={() => handleOrderChange("title")}
+          aria-pressed={order === "title"}
+          className={`flex-1 rounded px-2 py-1 ${
+            order === "title"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          A–Z
+        </button>
+        <button
+          type="button"
+          onClick={() => handleOrderChange("recent")}
+          aria-pressed={order === "recent"}
+          className={`flex-1 rounded px-2 py-1 ${
+            order === "recent"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Recent
+        </button>
+      </div>
+
       <div className="space-y-0.5">
         {isLoading && (
           <div className="px-2 py-2 text-xs text-muted-foreground">Loading projects…</div>
@@ -101,7 +162,12 @@ export default function ProjectTree() {
           <div className="px-2 py-2 text-xs text-destructive">Failed to load projects</div>
         )}
         {projects?.map((project) => (
-          <ProjectItem key={project.id} projectId={project.id} projectName={project.name} />
+          <ProjectItem
+            key={project.id}
+            projectId={project.id}
+            projectName={project.name}
+            order={order}
+          />
         ))}
       </div>
     </div>
