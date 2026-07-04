@@ -28,8 +28,8 @@ const revokedFamilyRetention = 30 * 24 * time.Hour
 // provider tokens, cached userinfo, refresh tokens, revoked JTIs, and token metadata. It also
 // removes OAuthRefreshFamily rows revoked more than revokedFamilyRetention ago, per the
 // retention policy on RevokeRefreshTokenFamily's forensics rationale. It returns the total
-// number of rows removed across all tables, for callers (a periodic sweeper, mirroring
-// internal/store/session.go's DeleteExpiredSessions) to log or expose as a metric.
+// number of rows removed across all tables, for a periodic sweeper caller to log or expose
+// as a metric.
 func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int, error) {
 	var total int
 

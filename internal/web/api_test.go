@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Fishwaldo/mcp-docstore/internal/app"
-	"github.com/Fishwaldo/mcp-docstore/internal/auth"
 	"github.com/Fishwaldo/mcp-docstore/internal/index"
 	"github.com/Fishwaldo/mcp-docstore/internal/search"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
@@ -24,15 +23,14 @@ import (
 // seeds a tenant + user, and returns the server, the store, and the seeded identity.
 func newAPIServer(t *testing.T) (*Server, *store.Store, store.Identity) {
 	t.Helper()
-	claims := &auth.Claims{Subject: "api-s1", Email: "alice@acme.com", Groups: []string{"eng"}}
-	srv, st := newTestServer(t, claims)
+	srv, st, _ := newTestServer(t)
 
 	ctx := context.Background()
 	ten, err := st.EnsureTenant(ctx, "acme", "Acme") // idempotent: newTestServer seeds it
 	require.NoError(t, err)
-	u, err := st.UpsertUser(ctx, ten.ID, claims.Subject, claims.Email, false)
+	u, err := st.UpsertUser(ctx, ten.ID, "api-s1", "alice@acme.com", false)
 	require.NoError(t, err)
-	id := store.Identity{TenantID: ten.ID, UserID: u.ID, Groups: claims.Groups}
+	id := store.Identity{TenantID: ten.ID, UserID: u.ID, Groups: []string{"eng"}}
 
 	idx, err := search.Open(t.TempDir() + "/idx.bleve")
 	require.NoError(t, err)
@@ -316,4 +314,27 @@ func TestSearchCrossTenantIsolation(t *testing.T) {
 	var hits []SearchHitDTO
 	decodeJSON(t, rec, &hits)
 	require.Empty(t, hits, "cross-tenant docs must not appear in search results")
+}
+
+// --- me ---
+
+func TestMeHappy(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+
+	rec := doGet(t, srv, id, "/me")
+	require.Equal(t, 200, rec.Code)
+
+	var me meBody
+	decodeJSON(t, rec, &me)
+	require.Equal(t, "alice@acme.com", me.Email)
+	require.Equal(t, "acme", me.Tenant)
+	require.Equal(t, []string{"eng"}, me.Groups)
+}
+
+func TestMeNoIdentityReturns500(t *testing.T) {
+	srv, _, _ := newAPIServer(t)
+	_, api := humatest.New(t)
+	srv.registerAPI(api)
+	rec := api.Get("/me")
+	require.Equal(t, 500, rec.Code)
 }

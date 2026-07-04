@@ -28,7 +28,6 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/project"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/projectgroupshare"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/projectshare"
-	"github.com/Fishwaldo/mcp-docstore/internal/ent/session"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/tenant"
 	"github.com/Fishwaldo/mcp-docstore/internal/ent/user"
 )
@@ -107,7 +106,6 @@ func checkColumn(t, c string) error {
 			project.Table:            project.ValidColumn,
 			projectgroupshare.Table:  projectgroupshare.ValidColumn,
 			projectshare.Table:       projectshare.ValidColumn,
-			session.Table:            session.ValidColumn,
 			tenant.Table:             tenant.ValidColumn,
 			user.Table:               user.ValidColumn,
 		})

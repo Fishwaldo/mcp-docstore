@@ -54,9 +54,6 @@ type ProjectGroupShare func(*sql.Selector)
 // ProjectShare is the predicate function for projectshare builders.
 type ProjectShare func(*sql.Selector)
 
-// Session is the predicate function for session builders.
-type Session func(*sql.Selector)
-
 // Tenant is the predicate function for tenant builders.
 type Tenant func(*sql.Selector)
 
