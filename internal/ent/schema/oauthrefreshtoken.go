@@ -10,8 +10,8 @@ import (
 )
 
 // OAuthRefreshToken is one issued refresh token, identified only by the SHA-256 hash of the
-// token value (same pattern as internal/store/session.go) so a leaked database can't be used
-// to mint a valid token directly. family_id and generation implement refresh token rotation:
+// token value so a leaked database can't be used to mint a valid token directly — the raw
+// value is never stored. family_id and generation implement refresh token rotation:
 // every refresh in a chain shares one family_id with an incrementing generation, so an
 // incoming refresh at an older generation than the family has already reached is recognizable
 // as reuse — a sign the token was stolen and both the legitimate client and an attacker are

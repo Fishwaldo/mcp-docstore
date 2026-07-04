@@ -56,13 +56,14 @@ type Config struct {
 	TrustProxy        bool
 	TrustedProxyCount int
 
-	// CookieSecure marks the consent cookie (Task 3) as Secure (HTTPS-only). Mirrors the web
-	// BFF's cookie_secure setting — the caller threads the same resolved value through both.
+	// CookieSecure marks the consent-gate's cookies (ds_oauth_consent, ds_oauth_csrf; see
+	// consent.go) as Secure (HTTPS-only). Sourced from the oauth.cookie_secure config key.
 	CookieSecure bool
 }
 
-// Service bundles the assembled authorization server and its HTTP handler. Task 3 mounts the
-// handler's routes; Task 4's in-process verifier consumes PublicKeys.
+// Service bundles the assembled authorization server and its HTTP handler. Mount (mount.go)
+// registers the handler's routes; PublicKeys feeds the in-process JWT verifier that validates
+// the access tokens this server issues.
 type Service struct {
 	srv                  *server.Server
 	h                    *handler.Handler

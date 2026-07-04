@@ -105,9 +105,9 @@ var consentTemplate = template.Must(template.New("consent").Parse(consentPageHTM
 // consentGate wraps inner (the library's registered OAuth routes) with the confused-deputy
 // check described on Service: every /oauth/* request passes straight through to inner except
 // GET /oauth/authorize, which is only forwarded once the requested client_id is either our
-// first-party BFF or already covered by a valid consent cookie. Otherwise the consent page is
-// served instead — inner never sees the request, so no upstream redirect can happen without
-// this gate approving it first.
+// first-party web SPA (docstore-web) or already covered by a valid consent cookie. Otherwise
+// the consent page is served instead — inner never sees the request, so no upstream redirect
+// can happen without this gate approving it first.
 func (s *Service) consentGate(inner http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/oauth/authorize" {

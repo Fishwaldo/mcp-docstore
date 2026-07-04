@@ -50,9 +50,8 @@ func New(c *ent.Client, enc *security.Encryptor, providerTokenTTL time.Duration)
 }
 
 // hashToken returns the lowercase hex SHA-256 of a raw token value. Refresh tokens are
-// looked up and stored by this hash, never by their raw value, mirroring
-// internal/store/session.go's rationale: a leaked database must not yield a usable
-// credential directly.
+// looked up and stored by this hash, never by their raw value, so a leaked database must
+// not yield a usable credential directly.
 func hashToken(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])

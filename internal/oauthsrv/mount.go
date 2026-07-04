@@ -11,8 +11,8 @@ import (
 
 // Mount registers every route the embedded authorization server serves onto mux: the OAuth
 // flow endpoints and discovery documents from github.com/giantswarm/mcp-oauth, gated by the
-// human consent check in consent.go for any client that is not our first-party BFF, plus our
-// own POST /oauth/consent endpoint that records that approval.
+// human consent check in consent.go for any client that is not our first-party web SPA
+// (docstore-web), plus our own POST /oauth/consent endpoint that records that approval.
 //
 // The library's routes are registered on an inner *http.ServeMux so consentGate can intercept
 // GET /oauth/authorize before it ever reaches them. Every other /oauth/* request (token,

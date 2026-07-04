@@ -51,10 +51,10 @@ func NewResourceVerifier(v Verifier, resolver *tenant.Resolver, st *store.Store,
 			var ie *IdentityError
 			if errors.Is(err, ErrIdentityRejected) && errors.As(err, &ie) {
 				if ie.Err != nil {
-					log.ErrorContext(ctx, "auth error", "reason", ie.Reason, "client_ip", ip, "error", ie.Err)
+					log.ErrorContext(ctx, "auth error", "reason", ie.Reason, "client_ip", ip, "email", claims.Email, "error", ie.Err)
 					return nil, ie.Err // infra fault -> 500 via SDK middleware
 				}
-				log.WarnContext(ctx, "auth failed", "reason", ie.Reason, "client_ip", ip)
+				log.WarnContext(ctx, "auth failed", "reason", ie.Reason, "client_ip", ip, "email", claims.Email)
 				return nil, fmt.Errorf("%w: %s", mcpauth.ErrInvalidToken, ie.Reason)
 			}
 			log.WarnContext(ctx, "auth failed", "reason", "token_invalid", "client_ip", ip)
