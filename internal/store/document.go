@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 
@@ -117,6 +118,39 @@ func (s *Store) ListDocuments(ctx context.Context, id Identity, projectID uuid.U
 			document.HasProjectWith(project.IDEQ(projectID)),
 		).
 		All(ctx)
+}
+
+// ListTags returns the sorted, de-duplicated set of tags across every document in the
+// caller's accessible, non-archived projects. Access is enforced per project via
+// ListProjectsWithAccess, so a caller never sees tags from documents they cannot read.
+func (s *Store) ListTags(ctx context.Context, id Identity) ([]string, error) {
+	projects, err := s.ListProjectsWithAccess(ctx, id, false)
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{})
+	for _, pa := range projects {
+		docs, err := s.client.Document.Query().
+			Where(
+				document.TenantIDEQ(id.TenantID),
+				document.HasProjectWith(project.IDEQ(pa.Project.ID)),
+			).
+			All(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range docs {
+			for _, t := range d.Tags {
+				set[t] = struct{}{}
+			}
+		}
+	}
+	tags := make([]string, 0, len(set))
+	for t := range set {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+	return tags, nil
 }
 
 // EditDocument holds the fields for an optimistic-concurrency edit.

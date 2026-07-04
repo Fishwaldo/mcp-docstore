@@ -54,6 +54,10 @@ func (s *Service) ListDocuments(ctx context.Context, id store.Identity, projectI
 	return s.store.ListDocuments(ctx, id, projectID)
 }
 
+func (s *Service) ListTags(ctx context.Context, id store.Identity) ([]string, error) {
+	return s.store.ListTags(ctx, id)
+}
+
 func (s *Service) GetSection(ctx context.Context, id store.Identity, docID uuid.UUID, heading string) (string, error) {
 	d, err := s.store.GetDocument(ctx, id, docID)
 	if err != nil {

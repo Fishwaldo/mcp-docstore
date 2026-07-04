@@ -34,6 +34,24 @@ func TestCreateGetListDocument(t *testing.T) {
 	require.Len(t, list, 1)
 }
 
+func TestListTagsUnionsAccessibleTags(t *testing.T) {
+	s := newTestStore(t)
+	ctx, id := fixture(t, s)
+
+	p1, err := s.CreateProject(ctx, id, "P1", "", "org")
+	require.NoError(t, err)
+	p2, err := s.CreateProject(ctx, id, "P2", "", "org")
+	require.NoError(t, err)
+	_, err = s.CreateDocument(ctx, id, p1.ID, NewDocument{Title: "A", Body: "x", Tags: []string{"beta", "alpha"}})
+	require.NoError(t, err)
+	_, err = s.CreateDocument(ctx, id, p2.ID, NewDocument{Title: "B", Body: "y", Tags: []string{"alpha", "gamma"}})
+	require.NoError(t, err)
+
+	tags, err := s.ListTags(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, []string{"alpha", "beta", "gamma"}, tags)
+}
+
 func TestCreateDocumentRequiresWriteAccess(t *testing.T) {
 	s := newTestStore(t)
 	ctx, owner := fixture(t, s)

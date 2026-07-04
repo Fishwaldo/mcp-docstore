@@ -14,7 +14,7 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 )
 
-// registerAPI mounts the 9 read-only JSON operations on the Huma API instance.
+// registerAPI mounts the 10 read-only JSON operations on the Huma API instance.
 // Every handler reads identity from the request context via IdentityFromContext;
 // the session middleware stamps it there before any handler runs. A missing identity
 // is treated as a server error (middleware normally guarantees it is present).
@@ -81,6 +81,13 @@ func (s *Server) registerAPI(api huma.API) {
 		Path:        "/search",
 		Summary:     "Full-text search across accessible documents",
 	}, s.handleSearch)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-tags",
+		Method:      http.MethodGet,
+		Path:        "/tags",
+		Summary:     "List the distinct tags across the caller's accessible documents",
+	}, s.handleGetTags)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "edit-document",
@@ -448,6 +455,30 @@ func (s *Server) handleSearch(ctx context.Context, in *searchInput) (*searchOutp
 		dtos[i] = toSearchHit(r)
 	}
 	return &searchOutput{Body: dtos}, nil
+}
+
+// --- get-tags ---
+
+type getTagsInput struct{}
+
+type getTagsOutput struct {
+	Body struct {
+		Tags []string `json:"tags"`
+	}
+}
+
+func (s *Server) handleGetTags(ctx context.Context, _ *getTagsInput) (*getTagsOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	tags, err := s.svc.ListTags(ctx, id)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	out := &getTagsOutput{}
+	out.Body.Tags = tags
+	return out, nil
 }
 
 // --- edit-document ---

@@ -329,6 +329,22 @@ func TestSearchCrossTenantIsolation(t *testing.T) {
 	require.Empty(t, hits, "cross-tenant docs must not appear in search results")
 }
 
+// --- get-tags ---
+
+func TestGetTagsReturnsSortedUnion(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	seedProjectAndDoc(t, srv, id) // tags ["seed","status:draft"]
+
+	rec := doGet(t, srv, id, "/tags")
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var out struct {
+		Tags []string `json:"tags"`
+	}
+	decodeJSON(t, rec, &out)
+	require.Equal(t, []string{"seed", "status:draft"}, out.Tags)
+}
+
 // --- me ---
 
 func TestMeHappy(t *testing.T) {
