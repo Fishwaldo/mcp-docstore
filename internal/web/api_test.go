@@ -458,3 +458,23 @@ func TestCreateDocumentUnknownProjectNotFound(t *testing.T) {
 	})
 	require.Equal(t, 404, rec.Code, rec.Body.String())
 }
+
+func TestDeleteDocument(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	_, docID := seedProjectAndDoc(t, srv, id)
+
+	rec := doJSON(t, srv, id, http.MethodDelete, "/documents/"+docID, nil)
+	require.Equal(t, 204, rec.Code, rec.Body.String())
+
+	// The document is gone: reading it now 404s.
+	rec2 := doGet(t, srv, id, "/documents/"+docID)
+	require.Equal(t, 404, rec2.Code, rec2.Body.String())
+}
+
+func TestDeleteDocumentUnknownIDNotFound(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	seedProjectAndDoc(t, srv, id)
+
+	rec := doJSON(t, srv, id, http.MethodDelete, "/documents/00000000-0000-0000-0000-000000000001", nil)
+	require.Equal(t, 404, rec.Code, rec.Body.String())
+}

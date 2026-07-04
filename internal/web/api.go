@@ -98,6 +98,14 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleCreateDocument)
 
 	huma.Register(api, huma.Operation{
+		OperationID:   "delete-document",
+		Method:        http.MethodDelete,
+		Path:          "/documents/{id}",
+		Summary:       "Delete a document",
+		DefaultStatus: http.StatusNoContent,
+	}, s.handleDeleteDocument)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "me",
 		Method:      http.MethodGet,
 		Path:        "/me",
@@ -513,4 +521,27 @@ func (s *Server) handleCreateDocument(ctx context.Context, in *createDocumentInp
 		return nil, huma.Error500InternalServerError("render failed: " + err.Error())
 	}
 	return &createDocumentOutput{Body: toDocumentDTO(doc, html)}, nil
+}
+
+// --- delete-document ---
+
+type deleteDocumentInput struct {
+	ID string `path:"id"`
+}
+
+type deleteDocumentOutput struct{}
+
+func (s *Server) handleDeleteDocument(ctx context.Context, in *deleteDocumentInput) (*deleteDocumentOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	docID, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.svc.DeleteDocument(ctx, id, docID); err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return &deleteDocumentOutput{}, nil
 }
