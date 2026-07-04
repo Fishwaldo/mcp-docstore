@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ProjectTree from "@/components/ProjectTree";
+import { searchDocuments } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   listProjects: vi.fn().mockResolvedValue([
@@ -11,6 +12,10 @@ vi.mock("@/lib/api", () => ({
   listDocuments: vi.fn().mockResolvedValue([
     { id: "b", title: "Zeta", overview: "", tags: [], version: 1, updated_at: "2026-02-01T00:00:00Z" },
     { id: "a", title: "Alpha", overview: "", tags: [], version: 1, updated_at: "2026-01-01T00:00:00Z" },
+  ]),
+  listTags: vi.fn().mockResolvedValue(["alpha", "beta"]),
+  searchDocuments: vi.fn().mockResolvedValue([
+    { document_id: "d1", project_id: "p1", title: "Matching Doc", overview: "", score: 1, snippet: "" },
   ]),
 }));
 
@@ -109,5 +114,47 @@ describe("ProjectTree name/chevron interaction", () => {
       expect(screen.getByText("Alpha")).toBeInTheDocument();
     });
     expect(screen.queryByText("Project page")).not.toBeInTheDocument();
+  });
+});
+
+describe("ProjectTree tag filter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("narrows the tree to matching projects/docs when a tag is checked, and restores on uncheck", async () => {
+    render(<ProjectTree />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /filter by tag/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: "alpha" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "alpha" }));
+
+    await waitFor(() => {
+      expect(searchDocuments).toHaveBeenCalledWith({ q: "", tags: ["alpha"] });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "Matching Doc" })).toHaveAttribute(
+        "href",
+        "/documents/d1",
+      );
+    });
+    expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "alpha" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: "Matching Doc" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Alpha Project")).toBeInTheDocument();
   });
 });

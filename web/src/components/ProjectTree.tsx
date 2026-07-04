@@ -2,7 +2,15 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus } from "lucide-react";
-import { listProjects, listDocuments, type DocumentSummaryDTO } from "@/lib/api";
+import {
+  listProjects,
+  listDocuments,
+  searchDocuments,
+  type DocumentSummaryDTO,
+  type SearchHitDTO,
+  type ProjectDTO,
+} from "@/lib/api";
+import TagFilter from "@/components/TagFilter";
 
 type DocOrder = "title" | "recent";
 
@@ -92,14 +100,60 @@ function ProjectItem({
   );
 }
 
+function FilteredProjectItem({
+  project,
+  hits,
+}: {
+  project: ProjectDTO;
+  hits: SearchHitDTO[];
+}) {
+  return (
+    <div>
+      <div className="flex w-full items-center gap-1.5 rounded-md hover:bg-accent">
+        <div className="flex shrink-0 items-center px-2 py-1.5 text-muted-foreground">
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+        </div>
+        <Link
+          to={`/projects/${project.id}`}
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-sm text-foreground"
+        >
+          <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">{project.name}</span>
+        </Link>
+      </div>
+      <div className="ml-7 mt-0.5 space-y-0.5">
+        {hits.map((hit) => (
+          <Link
+            key={hit.document_id}
+            to={`/documents/${hit.document_id}`}
+            className="block px-2 py-1 text-sm text-foreground hover:bg-accent rounded-md truncate"
+          >
+            {hit.title}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectTree() {
   const navigate = useNavigate();
   const [searchValue, setSearchValue] = useState("");
   const [order, setOrder] = useState<DocOrder>(() => getInitialDocOrder());
+  const [activeTags, setActiveTags] = useState<string[]>([]);
 
   const { data: projects, isLoading, isError } = useQuery({
     queryKey: ["projects"],
     queryFn: () => listProjects(),
+  });
+
+  const {
+    data: filteredHits,
+    isLoading: filteredLoading,
+  } = useQuery({
+    queryKey: ["docsByTags", activeTags],
+    queryFn: () => searchDocuments({ q: "", tags: activeTags }),
+    enabled: activeTags.length > 0,
   });
 
   function handleSearch(e: React.FormEvent) {
@@ -163,22 +217,58 @@ export default function ProjectTree() {
         </button>
       </div>
 
-      <div className="space-y-0.5">
-        {isLoading && (
-          <div className="px-2 py-2 text-xs text-muted-foreground">Loading projects…</div>
-        )}
-        {isError && (
-          <div className="px-2 py-2 text-xs text-destructive">Failed to load projects</div>
-        )}
-        {projects?.map((project) => (
-          <ProjectItem
-            key={project.id}
-            projectId={project.id}
-            projectName={project.name}
-            order={order}
-          />
-        ))}
-      </div>
+      <TagFilter selected={activeTags} onChange={setActiveTags} />
+
+      {activeTags.length === 0 ? (
+        <div className="space-y-0.5">
+          {isLoading && (
+            <div className="px-2 py-2 text-xs text-muted-foreground">Loading projects…</div>
+          )}
+          {isError && (
+            <div className="px-2 py-2 text-xs text-destructive">Failed to load projects</div>
+          )}
+          {projects?.map((project) => (
+            <ProjectItem
+              key={project.id}
+              projectId={project.id}
+              projectName={project.name}
+              order={order}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-0.5">
+          {filteredLoading && (
+            <div className="px-2 py-2 text-xs text-muted-foreground">Filtering…</div>
+          )}
+          {!filteredLoading && filteredHits?.length === 0 && (
+            <div className="px-2 py-2 text-xs text-muted-foreground">No documents match.</div>
+          )}
+          {!filteredLoading &&
+            filteredHits &&
+            filteredHits.length > 0 &&
+            (() => {
+              const hitsByProject = new Map<string, SearchHitDTO[]>();
+              for (const hit of filteredHits) {
+                const existing = hitsByProject.get(hit.project_id);
+                if (existing) {
+                  existing.push(hit);
+                } else {
+                  hitsByProject.set(hit.project_id, [hit]);
+                }
+              }
+              return projects
+                ?.filter((project) => hitsByProject.has(project.id))
+                .map((project) => (
+                  <FilteredProjectItem
+                    key={project.id}
+                    project={project}
+                    hits={hitsByProject.get(project.id)!}
+                  />
+                ));
+            })()}
+        </div>
+      )}
     </div>
   );
 }
