@@ -59,37 +59,66 @@ about safety.
 
 ## Configuration
 
-Copy [`config.example.yaml`](config.example.yaml) and edit it:
+Copy [`config.example.yaml`](config.example.yaml) — it is the fully-commented reference — and
+edit it. Every key with a listed default may be omitted. The complete surface:
 
 ```yaml
-listen_addr: ":8080"
-public_url: "https://docs.example.com"   # public base URL; used in protected-resource metadata, WWW-Authenticate, and icon URLs
-snapshot_retention: 10
-bleve_index_path: "./data/index.bleve"
+listen_addr: ":8080"                       # HTTP listen address (default ":8080")
+public_url: "https://docs.example.com"     # public base URL; the OAuth issuer + resource identifier.
+                                           # Used in discovery/protected-resource metadata, WWW-Authenticate, and icon URLs
+snapshot_retention: 10                     # versions kept per document (default 10)
+bleve_index_path: "./data/index.bleve"     # required; full-text index location
+session_timeout: 2m                        # reap idle Streamable HTTP MCP sessions (default 2m; must be positive)
+max_request_bytes: 4194304                 # cap MCP request body bytes (default 4 MiB)
+
+logging:
+  level: info                              # debug | info | warn | error (default info)
+  format: json                             # json | text (default json)
+  client_ip_header: ""                     # e.g. "X-Forwarded-For" behind a proxy; empty = connection RemoteAddr
 
 database:
-  driver: sqlite                          # sqlite | mysql | postgres
+  driver: sqlite                           # sqlite | mysql | postgres
+  # sqlite REQUIRES _pragma=foreign_keys(1) in the DSN — the server fails fast at startup without it
   dsn: "file:./data/docstore.db?_pragma=foreign_keys(1)"
 
-oidc:                                     # the UPSTREAM identity provider (login federation only)
+oidc:                                      # the UPSTREAM identity provider — login-federation leg ONLY.
+                                           # This server is its own OAuth issuer (see oauth: below).
   issuer: "https://idp.example.com"
-  client_id: "docstore-upstream-client-id"
-  client_secret: "docstore-upstream-client-secret"
+  client_id: "docstore-upstream-client-id"          # the ONE confidential client you register on your IdP
+  client_secret: "docstore-upstream-client-secret"  # redirect URI: {public_url}/oauth/callback
+  scopes: ["openid", "profile", "email", "groups", "offline_access"]  # default; offline_access is REQUIRED for refresh
+  discovery_timeout: 15s                   # bounds OIDC discovery + JWKS refresh calls (default 15s)
+  # allow_private_ip: false                # true ONLY for an internal IdP resolving to an RFC-1918/loopback address
+                                           # (relaxes SSRF protection on IdP calls; logged as a startup warning)
+  # root_ca: "/etc/mcp-docstore/idp-ca.pem"  # extra CA PEM to trust for an internal IdP's TLS certificate
 
-oauth:                                    # the embedded OAuth 2.1 authorization server (always on)
-  registration: "open"                    # "open" (default) | "allowlist"
+oauth:                                     # the embedded OAuth 2.1 authorization server (always on)
+  access_token_ttl: 15m                    # issued access-token lifetime (default 15m)
+  refresh_token_ttl: 168h                  # issued refresh-token lifetime (default 168h / 7 days)
+  registration: "open"                     # "open" (default; any client may dynamically register) | "allowlist"
+  # registration_allowlist:                # required (>=1 https:// entry) when registration is "allowlist"
+  #   - "https://client.example.com/callback"
+  cookie_secure: true                      # HTTPS-only consent cookie (default true); set false ONLY for local http dev
+  sweep_interval: 1h                       # reap expired oauth rows: auth codes, refresh tokens, revocations (default 1h)
+  trust_proxy: false                       # trust proxy X-Forwarded-* headers for client IP/scheme (default false)
+  trusted_proxy_count: 1                   # proxy hops to peel off when trust_proxy is true (default 1)
+
+web:                                       # optional web UI + REST API; omit or set enabled: false to disable
+  enabled: true                            # serves the SPA at "/", bearer-authenticated /api/*, and public /openapi.json + /docs
 
 tenants:
   - key: acme
     name: "Acme Corp"
     match:
-      domains: ["acme.com", "acme.io"]
-      emails: ["contractor@gmail.com"]
-    admins: ["alice@acme.com"]            # tenant admins (declarative; reconciled at login)
+      domains: ["acme.com", "acme.io"]     # a caller's email domain
+      emails: ["contractor@gmail.com"]     # or exact email
+    admins: ["alice@acme.com"]             # tenant admins (declarative; reconciled at login)
 ```
 
 Tenant admins have full read/write over every project in their own tenant. The `admins` list
-is the single source of truth and is reconciled on each login.
+is the single source of truth and is reconciled on each login. See the [Authentication](#authentication)
+and [Web UI and REST API](#web-ui-and-rest-api) sections below for what the `oidc:`, `oauth:`, and
+`web:` blocks actually do.
 
 ## Running
 
@@ -325,7 +354,7 @@ Layered, with each package owning one job:
 |---|---|
 | `internal/config` | Viper config load + validation |
 | `internal/tenant` | email/domain → tenant resolution + admin lookup |
-| `internal/auth` | token verification (local self-issued JWTs + upstream OIDC), identity resolution (SDK `TokenVerifier`) |
+| `internal/auth` | bearer verification of the server's own self-issued JWTs against in-process keys (shared by `/mcp` and `/api`) + email→tenant identity resolution |
 | `internal/oauthsrv` | embedded OAuth 2.1 authorization server: signing keys, upstream federation, consent gate, route mounting |
 | `internal/ent` | generated [ent](https://entgo.io) data layer |
 | `internal/store` | repository: the access rule, tenant scoping, optimistic concurrency, snapshots |
