@@ -256,6 +256,45 @@ describe("DocumentView", () => {
     });
   });
 
+  it("shows an inline error and keeps the dialog usable when deleteDocument fails", async () => {
+    vi.mocked(deleteDocument).mockRejectedValue(new Error("network error"));
+
+    render(<DocumentView />, { wrapper });
+    const editButton = await screen.findByRole("button", { name: "Edit" });
+    fireEvent.click(editButton);
+
+    const deleteButton = await screen.findByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButton);
+
+    const confirmButton = await screen.findByRole("button", { name: "Yes, delete" });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/network error/i)).toBeInTheDocument();
+    });
+    // Dialog stays open and the confirm button is still usable (not stuck disabled).
+    expect(screen.getByRole("button", { name: "Yes, delete" })).toBeEnabled();
+    expect(screen.queryByText("Home page")).not.toBeInTheDocument();
+  });
+
+  it("shows an inline error and keeps the dialog usable when restoreSnapshot fails", async () => {
+    vi.mocked(restoreSnapshot).mockRejectedValue(new Error("stale version"));
+
+    render(<DocumentView />, { wrapper });
+    await screen.findByText("Test Document");
+
+    const restoreButtons = await screen.findAllByRole("button", { name: "Restore" });
+    fireEvent.click(restoreButtons[0]);
+
+    const confirmButton = await screen.findByRole("button", { name: "Yes, restore" });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/stale version/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Yes, restore" })).toBeEnabled();
+  });
+
   it("Restore on a snapshot calls restoreSnapshot with base_version and body scope", async () => {
     vi.mocked(restoreSnapshot).mockResolvedValue({ ...baseDoc, version: 4 });
 

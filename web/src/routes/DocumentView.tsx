@@ -35,7 +35,9 @@ export default function DocumentView() {
   const [conflict, setConflict] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<number | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   const {
     data: doc,
@@ -83,8 +85,12 @@ export default function DocumentView() {
   const deleteMutation = useMutation({
     mutationFn: () => deleteDocument(doc!.id),
     onSuccess: () => {
+      setDeleteError(null);
       setDeleteDialogOpen(false);
       navigate("/");
+    },
+    onError: (err: unknown) => {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete document.");
     },
   });
 
@@ -94,7 +100,11 @@ export default function DocumentView() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["document", id] });
       queryClient.invalidateQueries({ queryKey: ["snapshots", id] });
+      setRestoreError(null);
       setRestoreTarget(null);
+    },
+    onError: (err: unknown) => {
+      setRestoreError(err instanceof Error ? err.message : "Failed to restore version.");
     },
   });
 
@@ -266,7 +276,10 @@ export default function DocumentView() {
                           {canEdit && (
                             <button
                               type="button"
-                              onClick={() => setRestoreTarget(snap.version)}
+                              onClick={() => {
+                                setRestoreError(null);
+                                setRestoreTarget(snap.version);
+                              }}
                               className="text-xs text-primary hover:underline"
                             >
                               Restore
@@ -358,7 +371,10 @@ export default function DocumentView() {
               </button>
               <button
                 type="button"
-                onClick={() => setDeleteDialogOpen(true)}
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteDialogOpen(true);
+                }}
                 className="ml-auto rounded-md border border-destructive/50 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
               >
                 Delete
@@ -368,7 +384,13 @@ export default function DocumentView() {
         )}
       </aside>
 
-      <Dialog.Root open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <Dialog.Root
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50" />
           <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
@@ -378,6 +400,9 @@ export default function DocumentView() {
             <Dialog.Description className="mt-2 text-sm text-muted-foreground">
               This permanently deletes &ldquo;{doc.title}&rdquo;. This action cannot be undone.
             </Dialog.Description>
+            {deleteError && (
+              <p className="mt-2 text-sm text-destructive">{deleteError}</p>
+            )}
             <div className="mt-4 flex justify-end gap-2">
               <Dialog.Close asChild>
                 <button
@@ -400,7 +425,15 @@ export default function DocumentView() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      <Dialog.Root open={restoreTarget !== null} onOpenChange={(open) => !open && setRestoreTarget(null)}>
+      <Dialog.Root
+        open={restoreTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRestoreTarget(null);
+            setRestoreError(null);
+          }
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50" />
           <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
@@ -411,6 +444,9 @@ export default function DocumentView() {
               This replaces the current body with version {restoreTarget}. A snapshot of the
               current version is kept.
             </Dialog.Description>
+            {restoreError && (
+              <p className="mt-2 text-sm text-destructive">{restoreError}</p>
+            )}
             <div className="mt-4 flex justify-end gap-2">
               <Dialog.Close asChild>
                 <button
