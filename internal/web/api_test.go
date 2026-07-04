@@ -162,6 +162,18 @@ func TestGetProjectNotFoundReturns404(t *testing.T) {
 	require.Equal(t, 404, rec.Code)
 }
 
+func TestGetProjectIncludesAccessLevel(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	projectID, _ := seedProjectAndDoc(t, srv, id) // org project, caller is owner → write
+
+	rec := doGet(t, srv, id, "/projects/"+projectID)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var dto ProjectDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, "write", dto.Access)
+}
+
 // --- list-documents ---
 
 func TestListDocumentsHappy(t *testing.T) {

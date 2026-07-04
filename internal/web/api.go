@@ -174,11 +174,11 @@ func (s *Server) handleGetProject(ctx context.Context, in *getProjectInput) (*ge
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.svc.GetProject(ctx, id, pid)
+	pa, err := s.svc.GetProjectWithAccess(ctx, id, pid)
 	if err != nil {
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
-	return &getProjectOutput{Body: toProjectDTO(p, "")}, nil
+	return &getProjectOutput{Body: toProjectDTO(pa.Project, pa.Access.String())}, nil
 }
 
 // --- list-documents ---

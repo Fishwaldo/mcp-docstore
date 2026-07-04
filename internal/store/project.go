@@ -101,6 +101,16 @@ func (s *Store) GetProject(ctx context.Context, id Identity, projectID uuid.UUID
 	return p, err
 }
 
+// GetProjectWithAccess fetches a project and the caller's effective access level in one call,
+// enforcing tenant-scoping and at least ReadAccess (ErrNotFound for cross-tenant/no-access).
+func (s *Store) GetProjectWithAccess(ctx context.Context, id Identity, projectID uuid.UUID) (ProjectWithAccess, error) {
+	p, acc, err := s.requireAccess(ctx, id, projectID, ReadAccess)
+	if err != nil {
+		return ProjectWithAccess{}, err
+	}
+	return ProjectWithAccess{Project: p, Access: acc}, nil
+}
+
 // ProjectWithAccess pairs a project with the caller's effective access level.
 type ProjectWithAccess struct {
 	Project *ent.Project
