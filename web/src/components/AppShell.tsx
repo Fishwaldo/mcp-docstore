@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, LogOut, Moon, Sun } from "lucide-react";
 import ProjectTree from "@/components/ProjectTree";
 import NoAccessScreen from "@/components/NoAccessScreen";
 import { getMe, NO_ACCESS_EVENT } from "@/lib/api";
 import { login, logout } from "@/lib/oauth";
+import { useTheme } from "@/hooks/useTheme";
 
 export default function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [noAccess, setNoAccess] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
+  const { theme, toggle } = useTheme();
 
   useEffect(() => {
     function onNoAccess() {
@@ -95,6 +97,18 @@ export default function AppShell() {
               {me.email}
             </p>
           )}
+          <button
+            onClick={toggle}
+            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-accent"
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? (
+              <Sun className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <Moon className="h-3.5 w-3.5 shrink-0" />
+            )}
+            {!collapsed && <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>}
+          </button>
           <button
             onClick={() => void handleLogout()}
             className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-accent"

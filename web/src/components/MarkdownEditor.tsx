@@ -20,6 +20,7 @@ import {
   InsertThematicBreak,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
+import { useTheme } from "@/hooks/useTheme";
 
 // codeMirrorPlugin needs a language map; "" is the fallback for fences with no info string.
 const CODE_LANGS = {
@@ -50,13 +51,14 @@ export default function MarkdownEditor({
   onChange: (md: string) => void;
   className?: string;
 }) {
-  // The app toggles `.dark` on <html>. MDXEditor themes via the `dark-theme` class.
-  const dark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  // The app toggles `.dark` on <html>. MDXEditor themes via the `dark-theme` class; subscribing
+  // to the theme store (instead of reading the class once) keeps this in sync with the toggle.
+  const { theme } = useTheme();
   return (
     <MDXEditor
       markdown={markdown}
       onChange={onChange}
-      className={`${dark ? "dark-theme " : ""}${className ?? ""}`}
+      className={`${theme === "dark" ? "dark-theme " : ""}${className ?? ""}`}
       contentEditableClassName="prose prose-sm max-w-none"
       plugins={[
         headingsPlugin(),

@@ -12,3 +12,13 @@ Object.defineProperty(globalThis, "crypto", {
   value: webcrypto,
   configurable: true,
 });
+
+// jsdom doesn't implement matchMedia; theme.ts's getInitialTheme() probes it for the OS
+// dark-mode preference, so stub a "no preference" implementation for the whole test run.
+if (!window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    matches: false, media: query, onchange: null,
+    addEventListener: () => {}, removeEventListener: () => {},
+    addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}

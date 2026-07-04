@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
@@ -45,5 +45,15 @@ describe("AppShell", () => {
   it("renders the DocStore title", () => {
     render(<AppShell />, { wrapper });
     expect(screen.getByText("DocStore")).toBeInTheDocument();
+  });
+
+  it("toggles dark mode and persists the choice", async () => {
+    localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    render(<AppShell />, { wrapper });
+    const btn = await screen.findByLabelText(/dark mode|light mode/i);
+    fireEvent.click(btn);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(localStorage.getItem("theme")).toBe("dark");
   });
 });
