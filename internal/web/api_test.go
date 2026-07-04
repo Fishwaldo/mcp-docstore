@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -337,4 +338,91 @@ func TestMeNoIdentityReturns500(t *testing.T) {
 	srv.registerAPI(api)
 	rec := api.Get("/me")
 	require.Equal(t, 500, rec.Code)
+}
+
+// doJSON issues a write request (PATCH/POST/DELETE) to a fresh test API with the
+// identity stamped on the context. body is JSON-encoded by humatest; pass nil for none.
+func doJSON(t *testing.T, srv *Server, id store.Identity, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	_, api := humatest.New(t)
+	srv.registerAPI(api)
+	ctx := withIdentity(context.Background(), id)
+	switch method {
+	case http.MethodPatch:
+		return api.PatchCtx(ctx, path, body)
+	case http.MethodPost:
+		return api.PostCtx(ctx, path, body)
+	case http.MethodDelete:
+		return api.DeleteCtx(ctx, path)
+	default:
+		t.Fatalf("doJSON: unsupported method %s", method)
+		return nil
+	}
+}
+
+// seedProjectAndDoc creates an org project and one document, returning their IDs.
+func seedProjectAndDoc(t *testing.T, srv *Server, id store.Identity) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	p, err := srv.svc.CreateProject(ctx, id, "Write API", "seed", "org")
+	require.NoError(t, err)
+	d, err := srv.svc.CreateDocument(ctx, id, p.ID, store.NewDocument{
+		Title:    "Doc One",
+		Overview: "seed overview",
+		Body:     "# Doc One\n\nhello body\n",
+		Tags:     []string{"seed", "status:draft"},
+		Comment:  "seed",
+	})
+	require.NoError(t, err)
+	return p.ID.String(), d.ID.String()
+}
+
+func TestEditDocumentReplacesFields(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	_, docID := seedProjectAndDoc(t, srv, id)
+
+	newBody := "# Doc One\n\nedited body\n"
+	newTags := []string{"seed", "status:done"}
+	rec := doJSON(t, srv, id, http.MethodPatch, "/documents/"+docID, map[string]any{
+		"base_version": 1,
+		"body":         newBody,
+		"tags":         newTags,
+		"comment":      "edit via api",
+	})
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var dto DocumentDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, 2, dto.Version)
+	require.Equal(t, newTags, dto.Tags)
+	require.Contains(t, dto.BodyHTML, "edited body")
+	require.Equal(t, "seed overview", dto.Overview) // omitted field left unchanged
+}
+
+func TestEditDocumentStaleBaseVersionConflicts(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	_, docID := seedProjectAndDoc(t, srv, id)
+
+	// First edit bumps the doc to version 2.
+	rec := doJSON(t, srv, id, http.MethodPatch, "/documents/"+docID, map[string]any{
+		"base_version": 1, "body": "# Doc One\n\nfirst edit\n",
+	})
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	// Second edit still claims base_version 1 → 409 with the current version named.
+	rec = doJSON(t, srv, id, http.MethodPatch, "/documents/"+docID, map[string]any{
+		"base_version": 1, "body": "# Doc One\n\nlost update\n",
+	})
+	require.Equal(t, 409, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "current version is 2")
+}
+
+func TestEditDocumentUnknownIDNotFound(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	seedProjectAndDoc(t, srv, id)
+
+	rec := doJSON(t, srv, id, http.MethodPatch, "/documents/00000000-0000-0000-0000-000000000001", map[string]any{
+		"base_version": 1, "body": "x",
+	})
+	require.Equal(t, 404, rec.Code, rec.Body.String())
 }

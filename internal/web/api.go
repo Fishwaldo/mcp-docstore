@@ -82,6 +82,13 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleSearch)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "edit-document",
+		Method:      http.MethodPatch,
+		Path:        "/documents/{id}",
+		Summary:     "Edit a document (full replace of provided fields, optimistic concurrency)",
+	}, s.handleEditDocument)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "me",
 		Method:      http.MethodGet,
 		Path:        "/me",
@@ -417,4 +424,41 @@ func (s *Server) handleSearch(ctx context.Context, in *searchInput) (*searchOutp
 		dtos[i] = toSearchHit(r)
 	}
 	return &searchOutput{Body: dtos}, nil
+}
+
+// --- edit-document ---
+
+type editDocumentInput struct {
+	ID   string `path:"id"`
+	Body struct {
+		BaseVersion int       `json:"base_version" minimum:"1" doc:"Document version the edit is based on; stale values are rejected with 409"`
+		Overview    *string   `json:"overview,omitempty"`
+		Body        *string   `json:"body,omitempty"`
+		Tags        *[]string `json:"tags,omitempty"`
+		Comment     string    `json:"comment,omitempty"`
+	}
+}
+
+type editDocumentOutput struct {
+	Body DocumentDTO
+}
+
+func (s *Server) handleEditDocument(ctx context.Context, in *editDocumentInput) (*editDocumentOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	docID, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := s.svc.EditReplace(ctx, id, docID, in.Body.BaseVersion, in.Body.Overview, in.Body.Body, in.Body.Tags, in.Body.Comment)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	html, err := renderMarkdown(doc.Body)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("render failed: " + err.Error())
+	}
+	return &editDocumentOutput{Body: toDocumentDTO(doc, html)}, nil
 }
