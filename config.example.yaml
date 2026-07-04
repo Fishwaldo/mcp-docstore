@@ -22,7 +22,7 @@ database:
 #
 # Register exactly ONE confidential OIDC client on your IdP for this server, with a redirect
 # URI of "{public_url}/oauth/callback" (using public_url above). That single upstream client
-# is shared by every downstream MCP client and the web BFF — they never talk to the IdP
+# is shared by every downstream MCP client and the web UI — they never talk to the IdP
 # directly, only to this server's own /oauth/authorize, /oauth/token, etc.
 oidc:
   issuer: "https://idp.example.com"
@@ -44,8 +44,8 @@ oidc:
 # oauth: configures the embedded OAuth authorization server (always on — this server issues
 # its own access/refresh tokens after federating login to oidc: above).
 oauth:
-  access_token_ttl: 1h        # lifetime of issued access tokens (default 1h)
-  refresh_token_ttl: 720h     # lifetime of issued refresh tokens (default 720h / 30 days)
+  access_token_ttl: 15m       # lifetime of issued access tokens (default 15m)
+  refresh_token_ttl: 168h     # lifetime of issued refresh tokens (default 168h / 7 days)
   registration: "open"        # "open" (default; any client may dynamically register) | "allowlist"
   # registration_allowlist: exact-match https:// redirect URIs admitted to dynamic client
   # registration when registration is "allowlist". Required (>=1 entry) in that mode; ignored
@@ -54,6 +54,8 @@ oauth:
   #   - "https://client.example.com/callback"
   trust_proxy: false          # trust proxy-supplied X-Forwarded-* headers for client IP/scheme
   trusted_proxy_count: 1      # number of trusted proxy hops to peel off when trust_proxy is true
+  cookie_secure: true         # secure (HTTPS-only) consent cookie; default true. Set false ONLY for local http development
+  sweep_interval: 1h          # interval to reap expired oauth store rows (auth codes, refresh tokens, revocations)
 
 tenants:
   - key: acme
@@ -63,12 +65,9 @@ tenants:
       emails: ["contractor@gmail.com"]
     admins: ["alice@acme.com"]            # tenant admins (declarative; reconciled at login)
 
-# web: optional BFF config for web UI sessions. When present, enables the web UI at "/";
-# when absent, the web UI is disabled. The BFF is a first-party client of the embedded
-# authorization server above (auto-seeded on boot), so it needs no OAuth client credentials
-# or redirect URL of its own — only session cookie/timeout knobs.
-#web:
-#  cookie_secure: true          # secure (HTTPS-only) cookies; default true. Set false ONLY for local http development
-#  idle_timeout: 24h            # reap idle sessions after this duration (default 24h)
-#  absolute_timeout: 168h       # absolute session lifetime (default 168h / 7 days)
-#  sweep_interval: 1h           # interval to reap expired sessions (default 1h)
+# web: toggles the optional web UI (bearer-authenticated /api plus the embedded SPA at "/").
+# When enabled: true, the SPA authenticates with the same bearer tokens /mcp trusts (PKCE via
+# the first-party "docstore-web" public client, auto-seeded on boot) — there is no session
+# cookie, CSRF, or timeout policy left to configure here.
+web:
+  enabled: true

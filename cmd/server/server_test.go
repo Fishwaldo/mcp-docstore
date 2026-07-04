@@ -75,13 +75,13 @@ func baseConfig(t *testing.T, idp *idptest.Server, listenAddr, dbPath string) st
 		"  - { key: acme, name: Acme, match: { domains: [\"acme.com\"] } }\n"
 }
 
-// webConfig appends a web: block enabling the BFF. The BFF is a first-party client of our own
-// embedded authorization server (auto-seeded on boot), so unlike before it needs no OAuth
-// client credentials or redirect URL of its own.
+// webConfig appends a web: block enabling the web UI. The SPA authenticates with the same
+// bearer tokens /mcp trusts (PKCE via the first-party "docstore-web" public client, auto-seeded
+// on boot), so unlike before it needs no OAuth client credentials or redirect URL of its own.
 func webConfig(base string) string {
 	return base +
 		"web:\n" +
-		"  cookie_secure: false\n"
+		"  enabled: true\n"
 }
 
 func freeAddr(t *testing.T) string {
@@ -354,9 +354,9 @@ func TestKeyMaterialStableAcrossReboots(t *testing.T) {
 	require.Equal(t, kid1, kid2, "the signing key (and its kid) must be reused across boots on the same database")
 }
 
-// TestWebEnabledModeRoutes verifies that when web: is present the server mounts /auth/login
-// (redirect to the embedded AS's own /oauth/authorize) and /api/projects (session-gated 401) in
-// addition to /mcp.
+// TestWebEnabledModeRoutes verifies that when web.enabled is true the server mounts /api
+// (bearer-gated) and the unauthenticated OpenAPI document/SPA, in addition to /mcp and the
+// always-on protected-resource metadata.
 func TestWebEnabledModeRoutes(t *testing.T) {
 	idp := idptest.New(t)
 	addr := freeAddr(t)
@@ -377,18 +377,23 @@ func TestWebEnabledModeRoutes(t *testing.T) {
 	require.NoError(t, mcpResp.Body.Close())
 	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
 
-	// /auth/login redirects to our own AS's /oauth/authorize (302).
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	loginResp, err := client.Get("http://" + addr + "/auth/login")
+	// /openapi.json is one of the two documented unauthenticated GET paths (root alias).
+	specResp, err := http.Get("http://" + addr + "/openapi.json")
 	require.NoError(t, err)
-	require.NoError(t, loginResp.Body.Close())
-	require.Equal(t, http.StatusFound, loginResp.StatusCode)
+	require.NoError(t, specResp.Body.Close())
+	require.Equal(t, http.StatusOK, specResp.StatusCode)
 
-	// /api/projects without a session returns 401.
+	// /api/projects without a bearer token returns 401.
 	apiResp, err := http.Get("http://" + addr + "/api/projects")
 	require.NoError(t, err)
 	require.NoError(t, apiResp.Body.Close())
 	require.Equal(t, http.StatusUnauthorized, apiResp.StatusCode)
+
+	// The protected-resource metadata is always mounted, web enabled or not.
+	prmResp, err := http.Get("http://" + addr + "/.well-known/oauth-protected-resource")
+	require.NoError(t, err)
+	require.NoError(t, prmResp.Body.Close())
+	require.Equal(t, http.StatusOK, prmResp.StatusCode)
 
 	// / serves the SPA (200 with HTML).
 	rootResp, err := http.Get("http://" + addr + "/")
@@ -399,6 +404,54 @@ func TestWebEnabledModeRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rootResp.StatusCode)
 	require.Contains(t, rootResp.Header.Get("Content-Type"), "text/html")
 	require.NotEmpty(t, rootBody)
+
+	cancel()
+	select {
+	case err := <-runErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// TestWebDisabledNoAPIOrSPA verifies that with web.enabled: false (an explicit, present but
+// disabled block) neither /api nor the SPA/OpenAPI routes are mounted, while the embedded
+// authorization server and /mcp are unaffected.
+func TestWebDisabledNoAPIOrSPA(t *testing.T) {
+	idp := idptest.New(t)
+	addr := freeAddr(t)
+	cfgPath := writeConfig(t, baseConfig(t, idp, addr, "")+"web:\n  enabled: false\n")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+	waitReady(t, addr)
+
+	specResp, err := http.Get("http://" + addr + "/openapi.json")
+	require.NoError(t, err)
+	require.NoError(t, specResp.Body.Close())
+	require.Equal(t, http.StatusNotFound, specResp.StatusCode)
+
+	apiResp, err := http.Get("http://" + addr + "/api/projects")
+	require.NoError(t, err)
+	require.NoError(t, apiResp.Body.Close())
+	require.Equal(t, http.StatusNotFound, apiResp.StatusCode)
+
+	// /oauth/authorize still routes (the AS is always on).
+	authorizeResp, err := http.Get("http://" + addr + "/oauth/authorize")
+	require.NoError(t, err)
+	require.NoError(t, authorizeResp.Body.Close())
+	require.NotEqual(t, http.StatusNotFound, authorizeResp.StatusCode, "/oauth/authorize must route even when web is disabled")
+
+	// /mcp still 401-challenges without a bearer token.
+	mcpResp, err := http.Post("http://"+addr+"/mcp", "application/json", nil)
+	require.NoError(t, err)
+	require.NoError(t, mcpResp.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
+	require.Contains(t, mcpResp.Header.Get("WWW-Authenticate"), "resource_metadata")
 
 	cancel()
 	select {

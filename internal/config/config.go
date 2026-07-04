@@ -31,8 +31,10 @@ type Config struct {
 	OAuth           OAuth        `mapstructure:"oauth"`
 	Tenants         []TenantSpec `mapstructure:"tenants"`
 	Logging         Logging      `mapstructure:"logging"`
-	// Web configures the optional BFF for web UI sessions. When nil, the web UI is disabled.
-	Web *WebConfig `mapstructure:"web"`
+	// Web toggles the optional web UI (bearer-authenticated /api plus the embedded SPA at
+	// "/"). Absent or `web: {enabled: false}` disables it; only /mcp and the always-on
+	// embedded authorization server serve.
+	Web WebConfig `mapstructure:"web"`
 
 	// RootCAPool is derived from OIDC.RootCA by Load and is not read from YAML directly.
 	// It is nil unless oidc.root_ca names a file, in which case Load has already read and
@@ -78,9 +80,9 @@ type OIDC struct {
 // OAuth configures the embedded authorization server, which is always on: this server is
 // its own OAuth issuer, federating login to the upstream IdP configured by OIDC.
 type OAuth struct {
-	// AccessTokenTTL is the lifetime of issued access tokens. Default 1h.
+	// AccessTokenTTL is the lifetime of issued access tokens. Default 15m.
 	AccessTokenTTL time.Duration `mapstructure:"access_token_ttl"`
-	// RefreshTokenTTL is the lifetime of issued refresh tokens. Default 720h (30 days).
+	// RefreshTokenTTL is the lifetime of issued refresh tokens. Default 168h (7 days).
 	RefreshTokenTTL time.Duration `mapstructure:"refresh_token_ttl"`
 	// Registration controls dynamic client registration (RFC 7591): "open" (default) admits
 	// any client; "allowlist" restricts registration to redirect URIs named in
@@ -96,6 +98,14 @@ type OAuth struct {
 	// TrustedProxyCount is the number of trusted proxy hops to peel off forwarding headers
 	// when TrustProxy is true. Default 1.
 	TrustedProxyCount int `mapstructure:"trusted_proxy_count"`
+	// CookieSecure marks the authorization server's consent cookie as Secure (HTTPS-only).
+	// It is a pointer so an unset value defaults to true (secure by default); set it to
+	// false only to opt out for local plain-HTTP development.
+	CookieSecure *bool `mapstructure:"cookie_secure"`
+	// SweepInterval is how often expired rows (authorization codes/states, refresh tokens,
+	// revoked JTIs, cached provider tokens/userinfo, aged-out revoked refresh-token families)
+	// are purged from the OAuth store. Default 1h.
+	SweepInterval time.Duration `mapstructure:"sweep_interval"`
 }
 
 // Logging configures the slog output. Level is debug|info|warn|error; Format is json|text.
@@ -119,17 +129,12 @@ type TenantMatch struct {
 	Emails  []string `mapstructure:"emails"`
 }
 
-// WebConfig configures the optional BFF for web UI sessions. The BFF is a first-party
-// client of the embedded authorization server (auto-seeded on boot), so it carries no
-// OAuth client credentials or redirect/scope configuration of its own.
+// WebConfig gates the optional web UI: bearer-authenticated /api plus the embedded SPA at
+// "/", served alongside the always-on embedded authorization server. The web server holds
+// no session/cookie/timeout policy of its own — it authenticates with the same bearer-token
+// verifier /mcp uses — so Enabled is the only knob left.
 type WebConfig struct {
-	// CookieSecure marks the session and CSRF cookies as Secure (HTTPS-only). It is a
-	// pointer so an unset value defaults to true (secure by default); set it to false
-	// only to opt out for local plain-HTTP development.
-	CookieSecure    *bool         `mapstructure:"cookie_secure"`
-	IdleTimeout     time.Duration `mapstructure:"idle_timeout"`
-	AbsoluteTimeout time.Duration `mapstructure:"absolute_timeout"`
-	SweepInterval   time.Duration `mapstructure:"sweep_interval"`
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // Load reads, defaults, normalizes, and validates the config at path.
@@ -142,8 +147,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("max_request_bytes", 4<<20)
 	v.SetDefault("oidc.scopes", []string{"openid", "profile", "email", "groups", "offline_access"})
 	v.SetDefault("oidc.discovery_timeout", 15*time.Second)
-	v.SetDefault("oauth.access_token_ttl", time.Hour)
-	v.SetDefault("oauth.refresh_token_ttl", 720*time.Hour)
+	v.SetDefault("oauth.access_token_ttl", 15*time.Minute)
+	v.SetDefault("oauth.refresh_token_ttl", 168*time.Hour)
 	v.SetDefault("oauth.registration", "open")
 	v.SetDefault("oauth.trusted_proxy_count", 1)
 	v.SetDefault("logging.level", "info")
@@ -185,20 +190,12 @@ func (c *Config) normalize() {
 }
 
 func (c *Config) applyDefaults() {
-	if c.Web != nil {
-		if c.Web.IdleTimeout <= 0 {
-			c.Web.IdleTimeout = 24 * time.Hour
-		}
-		if c.Web.AbsoluteTimeout <= 0 {
-			c.Web.AbsoluteTimeout = 168 * time.Hour
-		}
-		if c.Web.SweepInterval <= 0 {
-			c.Web.SweepInterval = 1 * time.Hour
-		}
-		if c.Web.CookieSecure == nil {
-			secure := true
-			c.Web.CookieSecure = &secure
-		}
+	if c.OAuth.SweepInterval <= 0 {
+		c.OAuth.SweepInterval = time.Hour
+	}
+	if c.OAuth.CookieSecure == nil {
+		secure := true
+		c.OAuth.CookieSecure = &secure
 	}
 }
 

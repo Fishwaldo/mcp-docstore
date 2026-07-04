@@ -124,15 +124,14 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	}
 	ost := entstore.New(entc, enc, 24*time.Hour)
 
-	// cookieSecure governs both the AS's consent cookie and (when web is enabled) the BFF's
-	// session/CSRF cookies. config.Load defaults cfg.Web.CookieSecure to true whenever cfg.Web
-	// is non-nil, so this only ever turns false via an explicit operator opt-out.
+	// cookieSecure governs the AS's consent cookie. config.Load defaults cfg.OAuth.CookieSecure
+	// to true, so this only ever turns false via an explicit operator opt-out.
 	cookieSecure := true
-	if cfg.Web != nil {
-		cookieSecure = *cfg.Web.CookieSecure
+	if cfg.OAuth.CookieSecure != nil {
+		cookieSecure = *cfg.OAuth.CookieSecure
 	}
 	if !cookieSecure {
-		logger.Warn("web cookie_secure is false; session and CSRF cookies will be sent over plain HTTP — use only for local development")
+		logger.Warn("oauth cookie_secure is false; the consent cookie will be sent over plain HTTP — use only for local development")
 	}
 
 	asvc, err := oauthsrv.New(ctx, oauthsrv.Config{
@@ -155,12 +154,13 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	defer asvc.Close()
 
 	keys, err := asvc.PublicKeys()
 	if err != nil {
 		return err
 	}
-	verifier := auth.NewLocalVerifier(cfg.PublicURL, cfg.PublicURL+"/mcp", keys, ost)
+	verifier := auth.NewLocalVerifier(cfg.PublicURL, []string{cfg.PublicURL + "/mcp", cfg.PublicURL}, keys, ost)
 
 	svc := app.NewService(st, idxSvc, logger)
 	icons := []sdkmcp.Icon{
@@ -190,32 +190,13 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	// authorization server is always on, independent of cfg.Web.
 	asvc.Mount(mux)
 
-	oauthSweepInterval := time.Hour
-	if cfg.Web != nil {
-		oauthSweepInterval = cfg.Web.SweepInterval
-	}
-	go sweepOAuthStore(ctx, logger, ost, oauthSweepInterval)
+	go sweepOAuthStore(ctx, logger, ost, cfg.OAuth.SweepInterval)
 
-	if cfg.Web != nil {
-		clientID, clientSecret, err := asvc.SeedBFFClient(ctx)
-		if err != nil {
+	if cfg.Web.Enabled {
+		if _, err := asvc.SeedWebClient(ctx); err != nil {
 			return err
 		}
-		transport := muxTransport{h: mux}
-		asClient := web.NewASClient(cfg.PublicURL, clientID, clientSecret, cfg.PublicURL+"/auth/callback", verifier, transport)
-		webCfg := web.Config{
-			ClientID:        clientID,
-			ClientSecret:    clientSecret,
-			Issuer:          cfg.PublicURL,
-			RedirectURL:     cfg.PublicURL + "/auth/callback",
-			Transport:       transport,
-			CookieSecure:    cookieSecure,
-			IdleTimeout:     cfg.Web.IdleTimeout,
-			AbsoluteTimeout: cfg.Web.AbsoluteTimeout,
-			SweepInterval:   cfg.Web.SweepInterval,
-		}
-		webSrv := web.New(webCfg, st, svc, resolver, asClient, logger)
-		webSrv.StartSweeper(ctx)
+		webSrv := web.New(web.Config{}, st, svc, resolver, verifier, logger)
 		webSrv.Mount(mux)
 		spa, err := webSrv.SPAHandler()
 		if err != nil {

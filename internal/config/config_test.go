@@ -124,8 +124,8 @@ oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secre
 	require.NoError(t, err)
 	require.Equal(t, []string{"openid", "profile", "email", "groups", "offline_access"}, cfg.OIDC.Scopes)
 	require.Equal(t, 15*time.Second, cfg.OIDC.DiscoveryTimeout)
-	require.Equal(t, time.Hour, cfg.OAuth.AccessTokenTTL)
-	require.Equal(t, 720*time.Hour, cfg.OAuth.RefreshTokenTTL)
+	require.Equal(t, 15*time.Minute, cfg.OAuth.AccessTokenTTL)
+	require.Equal(t, 168*time.Hour, cfg.OAuth.RefreshTokenTTL)
 	require.Equal(t, "open", cfg.OAuth.Registration)
 	require.Equal(t, 1, cfg.OAuth.TrustedProxyCount)
 }
@@ -643,6 +643,8 @@ oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secre
 	require.ErrorContains(t, err, "logging.format")
 }
 
+// TestWebDisabledWhenAbsent asserts that with no web: block at all, the web UI defaults to
+// disabled (the zero value of the now-value-typed WebConfig).
 func TestWebDisabledWhenAbsent(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"
@@ -652,36 +654,45 @@ oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secre
 `)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Nil(t, cfg.Web)
+	require.False(t, cfg.Web.Enabled)
 }
 
-// TestWebValidConfigLoadsWithDefaults covers the shrunk WebConfig: only timeout and cookie
-// keys remain (the BFF is a first-party client of the embedded AS and carries no OAuth
-// client credentials). A web block with just those keys must validate.
-func TestWebValidConfigLoadsWithDefaults(t *testing.T) {
+// TestWebEnabledTrue asserts web.enabled: true toggles the web UI on.
+func TestWebEnabledTrue(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"
 bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
 oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
 web:
-  idle_timeout: 24h
+  enabled: true
 `)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.NotNil(t, cfg.Web)
-	require.Equal(t, 24*time.Hour, cfg.Web.IdleTimeout)
-	require.Equal(t, 168*time.Hour, cfg.Web.AbsoluteTimeout)
-	require.Equal(t, 1*time.Hour, cfg.Web.SweepInterval)
-	require.NotNil(t, cfg.Web.CookieSecure)
-	require.True(t, *cfg.Web.CookieSecure)
+	require.True(t, cfg.Web.Enabled)
+}
+
+// TestWebEnabledFalse asserts an explicit web.enabled: false keeps the web UI disabled.
+func TestWebEnabledFalse(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+web:
+  enabled: false
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.False(t, cfg.Web.Enabled)
 }
 
 // TestWebRemovedKeysAreIgnored asserts stray removed keys (client_id, client_secret,
-// redirect_url, post_logout_redirect_url, scopes) in a web: block are simply ignored by
-// viper's decode rather than causing a load failure, and that WebConfig no longer exposes
-// those fields at all (a compile-time guarantee: this test wouldn't compile if the fields
-// still existed and this file referenced them).
+// redirect_url, post_logout_redirect_url, scopes, idle_timeout, absolute_timeout,
+// sweep_interval, cookie_secure) in a web: block are simply ignored by viper's decode rather
+// than causing a load failure, and that WebConfig no longer exposes those fields at all (a
+// compile-time guarantee: this test wouldn't compile if the fields still existed and this
+// file referenced them).
 func TestWebRemovedKeysAreIgnored(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"
@@ -689,78 +700,75 @@ bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
 oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
 web:
+  enabled: true
   client_id: "stale-client-id"
   client_secret: "stale-secret"
   redirect_url: "https://docs.example.com/auth/callback"
   post_logout_redirect_url: "https://example.com"
   scopes: ["openid", "email"]
+  idle_timeout: 24h
+  absolute_timeout: 168h
+  sweep_interval: 30m
   cookie_secure: false
 `)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.NotNil(t, cfg.Web)
-	require.False(t, *cfg.Web.CookieSecure)
+	require.True(t, cfg.Web.Enabled)
 }
 
-func TestWebConfigCustomTimeouts(t *testing.T) {
+// TestOAuthCookieSecureDefaultsTrue asserts oauth.cookie_secure defaults to true (a pointer,
+// so absence is distinguishable from an explicit false) when the oauth: block doesn't set it.
+func TestOAuthCookieSecureDefaultsTrue(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"
 bleve_index_path: "/tmp/idx.bleve"
 database: {driver: sqlite, dsn: "x"}
 oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
-web:
-  idle_timeout: 12h
-  absolute_timeout: 72h
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.OAuth.CookieSecure)
+	require.True(t, *cfg.OAuth.CookieSecure)
+}
+
+func TestOAuthCookieSecureExplicitFalse(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+oauth:
+  cookie_secure: false
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.OAuth.CookieSecure)
+	require.False(t, *cfg.OAuth.CookieSecure)
+}
+
+// TestOAuthSweepIntervalDefault asserts oauth.sweep_interval defaults to 1h when unset.
+func TestOAuthSweepIntervalDefault(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, cfg.OAuth.SweepInterval)
+}
+
+func TestOAuthSweepIntervalCustom(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+oauth:
   sweep_interval: 30m
 `)
 	cfg, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, 12*time.Hour, cfg.Web.IdleTimeout)
-	require.Equal(t, 72*time.Hour, cfg.Web.AbsoluteTimeout)
-	require.Equal(t, 30*time.Minute, cfg.Web.SweepInterval)
-}
-
-func TestWebConfigCookieSecure(t *testing.T) {
-	path := writeTemp(t, `
-public_url: "https://docs.example.com"
-bleve_index_path: "/tmp/idx.bleve"
-database: {driver: sqlite, dsn: "x"}
-oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
-web:
-  cookie_secure: true
-`)
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.NotNil(t, cfg.Web.CookieSecure)
-	require.True(t, *cfg.Web.CookieSecure)
-}
-
-func TestWebConfigCookieSecureDefaultsTrue(t *testing.T) {
-	path := writeTemp(t, `
-public_url: "https://docs.example.com"
-bleve_index_path: "/tmp/idx.bleve"
-database: {driver: sqlite, dsn: "x"}
-oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
-web:
-  idle_timeout: 24h
-`)
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.NotNil(t, cfg.Web.CookieSecure)
-	require.True(t, *cfg.Web.CookieSecure)
-}
-
-func TestWebConfigCookieSecureExplicitFalse(t *testing.T) {
-	path := writeTemp(t, `
-public_url: "https://docs.example.com"
-bleve_index_path: "/tmp/idx.bleve"
-database: {driver: sqlite, dsn: "x"}
-oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
-web:
-  cookie_secure: false
-`)
-	cfg, err := Load(path)
-	require.NoError(t, err)
-	require.NotNil(t, cfg.Web.CookieSecure)
-	require.False(t, *cfg.Web.CookieSecure)
+	require.Equal(t, 30*time.Minute, cfg.OAuth.SweepInterval)
 }
