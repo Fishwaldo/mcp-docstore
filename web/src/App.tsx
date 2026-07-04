@@ -3,6 +3,7 @@ import AppShell from "@/components/AppShell";
 import AuthGate from "@/components/AuthGate";
 import AuthCallback from "@/routes/AuthCallback";
 import DocumentView from "@/routes/DocumentView";
+import NewDocument from "@/routes/NewDocument";
 import DiffView from "@/routes/DiffView";
 import SearchResults from "@/routes/SearchResults";
 
@@ -20,6 +21,7 @@ export default function App() {
               </div>
             }
           />
+          <Route path="documents/new" element={<NewDocument />} />
           <Route path="documents/:id" element={<DocumentView />} />
           <Route path="documents/:id/diff" element={<DiffView />} />
           <Route path="search" element={<SearchResults />} />

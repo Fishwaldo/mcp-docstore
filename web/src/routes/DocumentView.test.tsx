@@ -3,7 +3,16 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DocumentView from "@/routes/DocumentView";
-import { getDocument, listSnapshots, getProject, editDocument, listTags, ConflictError } from "@/lib/api";
+import {
+  getDocument,
+  listSnapshots,
+  getProject,
+  editDocument,
+  deleteDocument,
+  restoreSnapshot,
+  listTags,
+  ConflictError,
+} from "@/lib/api";
 
 vi.mock("@/components/MarkdownEditor", () => ({
   default: ({ markdown, onChange }: { markdown: string; onChange: (v: string) => void }) => (
@@ -19,6 +28,8 @@ vi.mock("@/lib/api", async () => {
     listSnapshots: vi.fn(),
     getProject: vi.fn(),
     editDocument: vi.fn(),
+    deleteDocument: vi.fn(),
+    restoreSnapshot: vi.fn(),
     listTags: vi.fn(),
   };
 });
@@ -44,6 +55,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
         <Routes>
           <Route path="/documents/:id" element={children} />
           <Route path="/documents/:id/diff" element={<div>Diff page</div>} />
+          <Route path="/" element={<div>Home page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -219,5 +231,50 @@ describe("DocumentView", () => {
     });
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Keep editing" })).toBeInTheDocument();
+  });
+
+  it("Delete asks for confirmation then calls deleteDocument", async () => {
+    vi.mocked(deleteDocument).mockResolvedValue(undefined);
+
+    render(<DocumentView />, { wrapper });
+    const editButton = await screen.findByRole("button", { name: "Edit" });
+    fireEvent.click(editButton);
+
+    const deleteButton = await screen.findByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButton);
+
+    // Confirmation dialog appears; deleteDocument should not fire yet.
+    const confirmButton = await screen.findByRole("button", { name: "Yes, delete" });
+    expect(deleteDocument).not.toHaveBeenCalled();
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(deleteDocument).toHaveBeenCalledWith("d1");
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Home page")).toBeInTheDocument();
+    });
+  });
+
+  it("Restore on a snapshot calls restoreSnapshot with base_version and body scope", async () => {
+    vi.mocked(restoreSnapshot).mockResolvedValue({ ...baseDoc, version: 4 });
+
+    render(<DocumentView />, { wrapper });
+    await screen.findByText("Test Document");
+
+    const restoreButtons = await screen.findAllByRole("button", { name: "Restore" });
+    fireEvent.click(restoreButtons[0]);
+
+    const confirmButton = await screen.findByRole("button", { name: "Yes, restore" });
+    expect(restoreSnapshot).not.toHaveBeenCalled();
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(restoreSnapshot).toHaveBeenCalledWith("d1", {
+        version: 1,
+        base_version: 3,
+        scope: "body",
+      });
+    });
   });
 });

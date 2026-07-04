@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ChevronDown, Folder, FolderOpen } from "lucide-react";
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus } from "lucide-react";
 import { listProjects, listDocuments } from "@/lib/api";
 
 function ProjectItem({ projectId, projectName }: { projectId: string; projectName: string }) {
@@ -73,15 +73,25 @@ export default function ProjectTree() {
 
   return (
     <div className="flex flex-col gap-3">
-      <form onSubmit={handleSearch}>
-        <input
-          type="search"
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          placeholder="Search docs…"
-          className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-      </form>
+      <div className="flex items-center gap-2">
+        <form onSubmit={handleSearch} className="flex-1">
+          <input
+            type="search"
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            placeholder="Search docs…"
+            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </form>
+        <Link
+          to="/documents/new"
+          aria-label="New document"
+          title="New document"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Plus className="h-4 w-4" />
+        </Link>
+      </div>
 
       <div className="space-y-0.5">
         {isLoading && (

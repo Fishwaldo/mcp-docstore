@@ -1,8 +1,17 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import * as Dialog from "@radix-ui/react-dialog";
 import { ChevronDown } from "lucide-react";
-import { getDocument, listSnapshots, getProject, editDocument, ConflictError } from "@/lib/api";
+import {
+  getDocument,
+  listSnapshots,
+  getProject,
+  editDocument,
+  deleteDocument,
+  restoreSnapshot,
+  ConflictError,
+} from "@/lib/api";
 import MarkdownEditor from "@/components/MarkdownEditor";
 import TagEditor from "@/components/TagEditor";
 
@@ -15,6 +24,7 @@ function arraysEqual(a: string[], b: string[]): boolean {
 
 export default function DocumentView() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [overviewOpen, setOverviewOpen] = useState(true);
 
@@ -24,6 +34,8 @@ export default function DocumentView() {
   const [tags, setTags] = useState<string[]>([]);
   const [conflict, setConflict] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState<number | null>(null);
 
   const {
     data: doc,
@@ -65,6 +77,24 @@ export default function DocumentView() {
       } else {
         setSaveError(err instanceof Error ? err.message : "Failed to save.");
       }
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteDocument(doc!.id),
+    onSuccess: () => {
+      setDeleteDialogOpen(false);
+      navigate("/");
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (version: number) =>
+      restoreSnapshot(doc!.id, { version, base_version: doc!.version, scope: "body" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["document", id] });
+      queryClient.invalidateQueries({ queryKey: ["snapshots", id] });
+      setRestoreTarget(null);
     },
   });
 
@@ -226,12 +256,23 @@ export default function DocumentView() {
                     <li key={snap.version} className="text-sm">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium text-foreground">v{snap.version}</span>
-                        <Link
-                          to={`/documents/${id}/diff?from=${snap.version}&to=${doc.version}`}
-                          className="text-xs text-primary hover:underline"
-                        >
-                          Diff vs current
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            to={`/documents/${id}/diff?from=${snap.version}&to=${doc.version}`}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Diff vs current
+                          </Link>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => setRestoreTarget(snap.version)}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              Restore
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {snap.comment && (
                         <p className="text-muted-foreground truncate">{snap.comment}</p>
@@ -315,10 +356,82 @@ export default function DocumentView() {
               >
                 Cancel
               </button>
+              <button
+                type="button"
+                onClick={() => setDeleteDialogOpen(true)}
+                className="ml-auto rounded-md border border-destructive/50 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
+              >
+                Delete
+              </button>
             </div>
           </div>
         )}
       </aside>
+
+      <Dialog.Root open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+            <Dialog.Title className="text-lg font-semibold text-foreground">
+              Delete document?
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+              This permanently deletes &ldquo;{doc.title}&rdquo;. This action cannot be undone.
+            </Dialog.Description>
+            <div className="mt-4 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                Yes, delete
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={restoreTarget !== null} onOpenChange={(open) => !open && setRestoreTarget(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+            <Dialog.Title className="text-lg font-semibold text-foreground">
+              Restore version {restoreTarget}?
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+              This replaces the current body with version {restoreTarget}. A snapshot of the
+              current version is kept.
+            </Dialog.Description>
+            <div className="mt-4 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={() => restoreTarget !== null && restoreMutation.mutate(restoreTarget)}
+                disabled={restoreMutation.isPending}
+                className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                Yes, restore
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
