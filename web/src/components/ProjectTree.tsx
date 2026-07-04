@@ -43,22 +43,31 @@ function ProjectItem({
 
   return (
     <div>
-      <button
-        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-sm text-foreground hover:bg-accent rounded-md"
-        onClick={() => setExpanded((e) => !e)}
-      >
-        {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        )}
-        {expanded ? (
-          <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-        ) : (
-          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-        )}
-        <span className="truncate">{projectName}</span>
-      </button>
+      <div className="flex w-full items-center gap-1.5 rounded-md hover:bg-accent">
+        <button
+          type="button"
+          aria-label={`Toggle ${projectName}`}
+          className="flex shrink-0 items-center px-2 py-1.5 text-muted-foreground"
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+          )}
+        </button>
+        <Link
+          to={`/projects/${projectId}`}
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-sm text-foreground"
+        >
+          {expanded ? (
+            <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{projectName}</span>
+        </Link>
+      </div>
 
       {expanded && (
         <div className="ml-7 mt-0.5 space-y-0.5">

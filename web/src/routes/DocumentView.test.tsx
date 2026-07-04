@@ -55,6 +55,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
         <Routes>
           <Route path="/documents/:id" element={children} />
           <Route path="/documents/:id/diff" element={<div>Diff page</div>} />
+          <Route path="/projects/:id" element={<div>Project page</div>} />
           <Route path="/" element={<div>Home page</div>} />
         </Routes>
       </MemoryRouter>
@@ -252,7 +253,7 @@ describe("DocumentView", () => {
       expect(deleteDocument).toHaveBeenCalledWith("d1");
     });
     await waitFor(() => {
-      expect(screen.getByText("Home page")).toBeInTheDocument();
+      expect(screen.getByText("Project page")).toBeInTheDocument();
     });
   });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ProjectTree from "@/components/ProjectTree";
 
@@ -18,7 +18,12 @@ function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return (
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/"]}>{children}</MemoryRouter>
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/" element={children} />
+          <Route path="/projects/:id" element={<div>Project page</div>} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -35,7 +40,7 @@ describe("ProjectTree document ordering", () => {
     await waitFor(() => {
       expect(screen.getByText("Alpha Project")).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText("Alpha Project"));
+    fireEvent.click(screen.getByLabelText(/toggle alpha project/i));
 
     await waitFor(() => {
       expect(screen.getByText("Zeta")).toBeInTheDocument();
@@ -68,5 +73,41 @@ describe("ProjectTree document ordering", () => {
     });
 
     expect(localStorage.getItem("docOrder")).toBe("recent");
+  });
+});
+
+describe("ProjectTree name/chevron interaction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("clicking the project name navigates to /projects/:id without expanding", async () => {
+    render(<ProjectTree />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: /Alpha Project/ })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("link", { name: /Alpha Project/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Project page")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Zeta")).not.toBeInTheDocument();
+  });
+
+  it("clicking the chevron expands and shows lazy-loaded docs without navigating", async () => {
+    render(<ProjectTree />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/toggle alpha project/i)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByLabelText(/toggle alpha project/i));
+
+    await waitFor(() => {
+      expect(screen.getByText("Zeta")).toBeInTheDocument();
+      expect(screen.getByText("Alpha")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Project page")).not.toBeInTheDocument();
   });
 });

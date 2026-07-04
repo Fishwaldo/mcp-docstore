@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { listProjects, createDocument } from "@/lib/api";
 import MarkdownEditor from "@/components/MarkdownEditor";
 import TagEditor from "@/components/TagEditor";
 
 export default function NewDocument() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [projectId, setProjectId] = useState("");
   const [title, setTitle] = useState("");
@@ -32,6 +33,8 @@ export default function NewDocument() {
         tags,
       }),
     onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ["documents", selectedProjectId] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate(`/documents/${created.id}`);
     },
   });

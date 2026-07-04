@@ -87,7 +87,9 @@ export default function DocumentView() {
     onSuccess: () => {
       setDeleteError(null);
       setDeleteDialogOpen(false);
-      navigate("/");
+      queryClient.invalidateQueries({ queryKey: ["documents", doc!.project_id] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigate(`/projects/${doc!.project_id}`);
     },
     onError: (err: unknown) => {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete document.");
