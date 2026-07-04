@@ -99,7 +99,7 @@ function isExpiringSoon(): boolean {
 // itself only, never on behalf of another audience.
 export async function login(returnTo: string): Promise<void> {
   const verifier = randomBase64Url(32);
-  const state = randomBase64Url(16);
+  const state = randomBase64Url(32);
   const challenge = await pkceChallenge(verifier);
 
   const stash: PkceStash = { verifier, state, returnTo };

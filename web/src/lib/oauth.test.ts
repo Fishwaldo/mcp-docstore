@@ -125,7 +125,8 @@ describe("login", () => {
     expect(assign).toHaveBeenCalledTimes(1);
     const state = stateFromAuthorizeUrl(assign);
     expect(state).toBeTruthy();
-    expect(state.length).toBeGreaterThan(10);
+    // The AS rejects state shorter than 24 chars; keep well clear of that floor.
+    expect(state.length).toBeGreaterThanOrEqual(24);
   });
 });
 
