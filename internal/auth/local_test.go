@@ -101,7 +101,7 @@ func TestLocalVerifierValidToken(t *testing.T) {
 		t.Fatalf("generate key: %v", err)
 	}
 	rc := newFakeRevocationChecker()
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	tok := mintToken(t, key, josejose.ES256, defaultClaims())
 	claims, err := v.Verify(context.Background(), tok)
@@ -125,7 +125,7 @@ func TestLocalVerifierValidToken(t *testing.T) {
 func TestLocalVerifierWrongIssuer(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.Issuer = "https://not-us.example.com"
@@ -139,7 +139,7 @@ func TestLocalVerifierWrongIssuer(t *testing.T) {
 func TestLocalVerifierWrongAudience(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.Audience = []string{"https://someone-else.example.com/mcp"}
@@ -153,7 +153,7 @@ func TestLocalVerifierWrongAudience(t *testing.T) {
 func TestLocalVerifierExpired(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.Expiry = time.Now().Add(-time.Hour).Unix()
@@ -174,7 +174,7 @@ func TestLocalVerifierWrongAlgorithm(t *testing.T) {
 	// The verifier is only ever configured with the AS's own ES256 public key, so an
 	// RS256-signed token (even naming the right issuer/audience/subject) must be rejected
 	// on algorithm grounds — it could not have come from our signer.
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{ecKey.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{ecKey.Public()}, rc)
 
 	tok := mintToken(t, rsaKey, josejose.RS256, defaultClaims())
 	if _, err := v.Verify(context.Background(), tok); err == nil {
@@ -186,7 +186,7 @@ func TestLocalVerifierRevokedJTI(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
 	rc.revokedJTIs["jti-1"] = true
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.JTI = "jti-1"
@@ -201,7 +201,7 @@ func TestLocalVerifierRevokedFamily(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
 	rc.families["family-1"] = &storage.RefreshTokenFamilyMetadata{FamilyID: "family-1", Revoked: true}
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.FamilyID = "family-1"
@@ -215,7 +215,7 @@ func TestLocalVerifierRevokedFamily(t *testing.T) {
 func TestLocalVerifierUnknownFamilyIsOK(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker() // no families registered -> ErrRefreshTokenFamilyNotFound
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.FamilyID = "unknown-family"
@@ -229,7 +229,7 @@ func TestLocalVerifierUnknownFamilyIsOK(t *testing.T) {
 func TestLocalVerifierTrailingSlashAudience(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.Audience = []string{testAudience + "/"}
@@ -244,7 +244,7 @@ func TestLocalVerifierFamilyStorageErrorFailsClosed(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
 	rc.familyLookErr = errors.New("storage unavailable")
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.FamilyID = "family-x"
@@ -259,7 +259,7 @@ func TestLocalVerifierJTIStorageErrorFailsClosed(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	rc := newFakeRevocationChecker()
 	rc.jtiLookErr = errors.New("storage unavailable")
-	v := NewLocalVerifier(testIssuer, testAudience, []crypto.PublicKey{key.Public()}, rc)
+	v := NewLocalVerifier(testIssuer, []string{testAudience}, []crypto.PublicKey{key.Public()}, rc)
 
 	claims := defaultClaims()
 	claims.JTI = "jti-x"
@@ -281,5 +281,98 @@ func TestNewLocalVerifierEmptyAudiencePanics(t *testing.T) {
 		}
 	}()
 	// A trailing slash normalizes to empty and must be rejected the same as "".
-	NewLocalVerifier(testIssuer, "/", []crypto.PublicKey{key.Public()}, rc)
+	NewLocalVerifier(testIssuer, []string{"/"}, []crypto.PublicKey{key.Public()}, rc)
+}
+
+func TestNewLocalVerifierEmptyAudienceSlicePanics(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewLocalVerifier() did not panic on empty audience slice")
+		}
+	}()
+	NewLocalVerifier(testIssuer, nil, []crypto.PublicKey{key.Public()}, rc)
+}
+
+func TestNewLocalVerifierAllEmptyAudiencesPanics(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewLocalVerifier() did not panic when every audience entry is empty")
+		}
+	}()
+	// "" and "/" both normalize to empty; a slice of only such entries must panic exactly
+	// like a wholly empty slice, not silently fall back to accepting any audience.
+	NewLocalVerifier(testIssuer, []string{"", "/"}, []crypto.PublicKey{key.Public()}, rc)
+}
+
+func TestLocalVerifierAudienceSetAcceptsAnyConfiguredAudience(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	publicAudience := "https://docstore.example.com"
+	v := NewLocalVerifier(testIssuer, []string{publicAudience, testAudience}, []crypto.PublicKey{key.Public()}, rc)
+
+	cases := []struct {
+		name string
+		aud  []string
+	}{
+		{"mcp-specific audience only", []string{testAudience}},
+		{"public audience only", []string{publicAudience}},
+		{"both configured audiences", []string{publicAudience, testAudience}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			claims := defaultClaims()
+			claims.Audience = tc.aud
+			tok := mintToken(t, key, josejose.ES256, claims)
+			if _, err := v.Verify(context.Background(), tok); err != nil {
+				t.Fatalf("Verify() error = %v, want nil for aud %v", err, tc.aud)
+			}
+		})
+	}
+}
+
+func TestLocalVerifierAudienceSetRejectsForeignAudience(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	v := NewLocalVerifier(testIssuer, []string{"https://docstore.example.com", testAudience}, []crypto.PublicKey{key.Public()}, rc)
+
+	claims := defaultClaims()
+	claims.Audience = []string{"https://someone-else.example.com/mcp"}
+	tok := mintToken(t, key, josejose.ES256, claims)
+
+	if _, err := v.Verify(context.Background(), tok); err == nil {
+		t.Fatal("Verify() error = nil, want error for foreign audience against an audience set")
+	}
+}
+
+func TestLocalVerifierAudienceSetRejectsMissingAudience(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	v := NewLocalVerifier(testIssuer, []string{"https://docstore.example.com", testAudience}, []crypto.PublicKey{key.Public()}, rc)
+
+	claims := defaultClaims()
+	claims.Audience = nil
+	tok := mintToken(t, key, josejose.ES256, claims)
+
+	if _, err := v.Verify(context.Background(), tok); err == nil {
+		t.Fatal("Verify() error = nil, want error for missing audience against an audience set")
+	}
+}
+
+func TestLocalVerifierAudienceSetTrailingSlashVariants(t *testing.T) {
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	rc := newFakeRevocationChecker()
+	publicAudience := "https://docstore.example.com"
+	v := NewLocalVerifier(testIssuer, []string{publicAudience, testAudience}, []crypto.PublicKey{key.Public()}, rc)
+
+	claims := defaultClaims()
+	claims.Audience = []string{publicAudience + "/"}
+	tok := mintToken(t, key, josejose.ES256, claims)
+
+	if _, err := v.Verify(context.Background(), tok); err != nil {
+		t.Fatalf("Verify() error = %v, want nil for trailing-slash variant of a configured audience", err)
+	}
 }

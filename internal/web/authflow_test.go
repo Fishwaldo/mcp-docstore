@@ -112,7 +112,7 @@ func newTestAS(t *testing.T, mux *http.ServeMux, publicURL string) *testAS {
 
 	keys, err := svc.PublicKeys()
 	require.NoError(t, err)
-	verifier := auth.NewLocalVerifier(publicURL, publicURL+"/mcp", keys, combined)
+	verifier := auth.NewLocalVerifier(publicURL, []string{publicURL + "/mcp"}, keys, combined)
 
 	return &testAS{mux: mux, clientID: clientID, clientSecret: clientSecret, verifier: verifier, idp: idp}
 }

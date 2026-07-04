@@ -28,9 +28,9 @@ type RevocationChecker interface {
 // dependency on the server's own public URL being reachable: the keys are the AS's own
 // signing key material, loaded once at boot.
 type LocalVerifier struct {
-	verifier *oidc.IDTokenVerifier
-	audience string
-	rc       RevocationChecker
+	verifier  *oidc.IDTokenVerifier
+	audiences []string
+	rc        RevocationChecker
 }
 
 // NewLocalVerifier verifies self-issued access tokens against a static public key set — no
@@ -38,14 +38,20 @@ type LocalVerifier struct {
 // expiry, and (when the token carries jti/family_id claims) the revocation and family state
 // via rc.
 //
-// It panics on an empty audience: with an empty want, audienceMatches would accept any token
-// carrying an empty "aud" entry, so a miswired empty audience must fail loudly at boot rather
-// than silently widen what this verifier accepts on the request hot path. Construction is
-// boot-time, so a panic here is a startup failure, never a per-request one — mirroring
-// NewOIDCVerifier, which returns an error for the same condition.
-func NewLocalVerifier(issuer, audience string, keys []crypto.PublicKey, rc RevocationChecker) *LocalVerifier {
-	if normalizeAudience(audience) == "" {
-		panic("auth: NewLocalVerifier requires a non-empty audience")
+// audiences lists every "aud" value this verifier accepts — e.g. a resource's own MCP
+// audience alongside a broader "public" audience shared with /api — and Verify accepts a
+// token whose "aud" contains any one of them.
+//
+// It panics when audiences is empty or every entry normalizes to empty: with no non-empty
+// want, audienceMatches would accept any token carrying an empty "aud" entry, so a miswired
+// empty audience set must fail loudly at boot rather than silently widen what this verifier
+// accepts on the request hot path. Construction is boot-time, so a panic here is a startup
+// failure, never a per-request one — mirroring NewOIDCVerifier, which returns an error for
+// the same condition.
+func NewLocalVerifier(issuer string, audiences []string, keys []crypto.PublicKey, rc RevocationChecker) *LocalVerifier {
+	normalized := normalizeAudiences(audiences)
+	if len(normalized) == 0 {
+		panic("auth: NewLocalVerifier requires at least one non-empty audience")
 	}
 	cfg := &oidc.Config{
 		// The audience check is done ourselves after Verify, so we can normalize away a
@@ -58,9 +64,9 @@ func NewLocalVerifier(issuer, audience string, keys []crypto.PublicKey, rc Revoc
 	}
 	keySet := &oidc.StaticKeySet{PublicKeys: keys}
 	return &LocalVerifier{
-		verifier: oidc.NewVerifier(issuer, keySet, cfg),
-		audience: normalizeAudience(audience),
-		rc:       rc,
+		verifier:  oidc.NewVerifier(issuer, keySet, cfg),
+		audiences: normalized,
+		rc:        rc,
 	}
 }
 
@@ -87,7 +93,7 @@ func (v *LocalVerifier) Verify(ctx context.Context, rawToken string) (*Claims, e
 	if idToken.Subject == "" {
 		return nil, fmt.Errorf("verify token: missing subject")
 	}
-	if !audienceMatches(idToken.Audience, v.audience) {
+	if !audienceMatches(idToken.Audience, v.audiences) {
 		return nil, fmt.Errorf("verify token: audience mismatch")
 	}
 
@@ -137,12 +143,27 @@ func normalizeAudience(aud string) string {
 	return strings.TrimSuffix(aud, "/")
 }
 
-// audienceMatches reports whether any entry of aud, trailing-slash-normalized, equals the
-// already-normalized want.
-func audienceMatches(aud []string, want string) bool {
+// normalizeAudiences normalizes each entry and drops any that end up empty, so a blank or
+// slash-only entry in config can't silently widen what audienceMatches accepts.
+func normalizeAudiences(audiences []string) []string {
+	out := make([]string, 0, len(audiences))
+	for _, a := range audiences {
+		if n := normalizeAudience(a); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// audienceMatches reports whether any entry of aud, trailing-slash-normalized, equals any
+// entry of want (want must already be normalized).
+func audienceMatches(aud []string, want []string) bool {
 	for _, a := range aud {
-		if normalizeAudience(a) == want {
-			return true
+		na := normalizeAudience(a)
+		for _, w := range want {
+			if na == w {
+				return true
+			}
 		}
 	}
 	return false
