@@ -114,6 +114,19 @@ func TestGetDocumentHappy(t *testing.T) {
 	require.Contains(t, doc.BodyHTML, "<h1")
 }
 
+func TestGetDocumentIncludesRawBody(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	_, docID := seedProjectAndDoc(t, srv, id) // body "# Doc One\n\nhello body\n"
+
+	rec := doGet(t, srv, id, "/documents/"+docID)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var dto DocumentDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, "# Doc One\n\nhello body\n", dto.Body)
+	require.Contains(t, dto.BodyHTML, "<h1") // rendered HTML still present
+}
+
 func TestGetDocumentCrossTenantReturns404(t *testing.T) {
 	srv, st, id := newAPIServer(t)
 	ctx := context.Background()

@@ -54,12 +54,14 @@ func toDocumentSummary(d *ent.Document) DocumentSummaryDTO {
 	}
 }
 
-// DocumentDTO represents a document with rendered HTML body in JSON.
+// DocumentDTO represents a document in JSON, carrying both the raw markdown
+// body (body) and its server-rendered HTML (body_html).
 type DocumentDTO struct {
 	ID            string   `json:"id"`
 	ProjectID     string   `json:"project_id,omitempty"`
 	Title         string   `json:"title"`
 	Overview      string   `json:"overview"`
+	Body          string   `json:"body"`
 	Tags          []string `json:"tags"`
 	Version       int      `json:"version"`
 	ChangeComment string   `json:"change_comment"`
@@ -73,6 +75,7 @@ func toDocumentDTO(d *ent.Document, bodyHTML string) DocumentDTO {
 		ID:            d.ID.String(),
 		Title:         d.Title,
 		Overview:      d.Overview,
+		Body:          d.Body,
 		Tags:          d.Tags,
 		Version:       d.Version,
 		ChangeComment: d.ChangeComment,
