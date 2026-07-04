@@ -609,3 +609,243 @@ func TestOAuthConformanceRegistrationAllowlist(t *testing.T) {
 		require.Equal(t, http.StatusCreated, resp.StatusCode, "body=%s", respBody)
 	})
 }
+
+// webSPAClientID is the seeded first-party web SPA client (internal/oauthsrv.SeedWebClient),
+// a PUBLIC client (no secret, token_endpoint_auth_method "none") whose sole redirect URI is
+// "{public_url}/auth/callback" and which consentGate exempts from the human approval page.
+const webSPAClientID = "docstore-web"
+
+// apiGET performs a GET against addr+path, attaching an Authorization: Bearer header only when
+// bearer is non-empty, and returns the response's status code and raw body. It is the /api
+// counterpart to mcpInitialize: callers here need the JSON body too, to assert on error codes
+// such as "no_access" or on /api/me's identity fields, not just accept/reject.
+func apiGET(t *testing.T, addr, path, bearer string) (status int, body []byte) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr+path, nil)
+	require.NoError(t, err)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err = io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, body
+}
+
+// newBrowserStopAtPath is newBrowser's redirect-stop condition generalized from hostname to
+// (hostname, path): every OTHER registered client in this suite uses a redirect_uri on a host
+// that differs from the AS's own public_url (an IP literal or a loopback address), so matching
+// the stop on hostname alone is enough to tell "the AS's own /oauth/callback hop" apart from
+// "the final hop back to the client". The seeded first-party webSPAClientID is the one
+// exception: its redirect_uri ({public_url}/auth/callback) lives on the SAME host as
+// public_url, so a hostname-only stop would misfire on the AS's own same-host /oauth/callback
+// redirect instead of the intended final one. The two routes never share a path, so matching on
+// path too disambiguates them.
+func newBrowserStopAtPath(t *testing.T, upstreamCAs *tls.Config, publicHost, stopPath, realAddr string) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	return &http.Client{
+		Jar: jar,
+		Transport: &publicHostRedirectTransport{
+			base:       &http.Transport{TLSClientConfig: upstreamCAs},
+			publicHost: publicHost,
+			realAddr:   realAddr,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL.Hostname() == publicHost && req.URL.Path == stopPath {
+				return http.ErrUseLastResponse
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after %d redirects", len(via))
+			}
+			return nil
+		},
+	}
+}
+
+// TestSPAAndAPIConformance covers the access patterns introduced by replacing the web BFF with
+// a public-client SPA and a bearer-gated /api that shares its verifier with /mcp: the seeded
+// docstore-web PKCE flow, the /api auth matrix (missing/garbage/revoked/tenantless tokens), an
+// external (non-web) REST client's DCR recipe, and the publicly reachable OpenAPI/docs routes.
+// It boots its own server (web enabled) independent of TestOAuthConformance above.
+func TestSPAAndAPIConformance(t *testing.T) {
+	idp := idptest.New(t)
+	// baseConfig's sole tenant admits "acme.com"; rehome the fake user there so flows that need
+	// a resolvable identity get one. Subtests that need a tenantless identity instead flip this
+	// back to an unmapped domain for the duration of that subtest only.
+	idp.User.Email = "user@acme.com"
+	addr := freeAddr(t)
+	// docstore-web's redirect_uri is same-origin with public_url (oauthsrv.SeedWebClient), so
+	// unlike every other scenario in this file this one can't dodge the library's strict DNS
+	// validation by putting the redirect on a foreign host — it has to give public_url itself
+	// an IP-literal host, which net.ParseIP-based validation accepts without a real DNS lookup.
+	const publicHost = "93.184.216.36"
+	const publicURL = "https://" + publicHost
+	cfgPath := writeConfig(t, webConfig(baseConfigWithPublicURL(t, idp, publicURL, addr, "")))
+	stop := runServer(t, cfgPath)
+	defer stop()
+	waitReady(t, addr)
+
+	upstreamTLS := &tls.Config{RootCAs: idp.RootCAs}
+	const mcpResource = publicURL + "/mcp"
+
+	// Scenario 8: the seeded docstore-web public client through PKCE, no "resource" param
+	// (the SPA never sends one — this server mints tokens for itself only), then the resulting
+	// access token used against /api/projects and /api/me.
+	t.Run("SPAPublicClientPKCEFlow", func(t *testing.T) {
+		redirectURI := publicURL + "/auth/callback"
+
+		// First-party proof: a bare, cookie-less GET /oauth/authorize for this client_id must
+		// redirect straight to the upstream IdP (302), never render the consent page (200). A
+		// throwaway query (its own state) is enough — this leg never proceeds to a code
+		// exchange, so it can't collide with the query used below.
+		precheckQuery, _ := authorizeQuery(webSPAClientID, redirectURI, "state-8-precheck-0123456789abcdef", "openid", "")
+		noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		firstResp, err := noRedirect.Get("http://" + addr + "/oauth/authorize?" + precheckQuery.Encode())
+		require.NoError(t, err)
+		require.NoError(t, firstResp.Body.Close())
+		require.Equal(t, http.StatusFound, firstResp.StatusCode,
+			"the first-party web client must skip the consent page and redirect straight to the upstream IdP")
+
+		query, verifier := authorizeQuery(webSPAClientID, redirectURI, "state-8-0123456789abcdef0123456789",
+			"openid profile email groups offline_access", "")
+		require.NotContains(t, query, "resource")
+
+		browser := newBrowserStopAtPath(t, upstreamTLS, publicHost, "/auth/callback", addr)
+		code, gotState := obtainAuthCode(t, browser, addr, query)
+		require.Equal(t, "state-8-0123456789abcdef0123456789", gotState)
+
+		status, tok := exchangeToken(t, addr, webSPAClientID, "", code, redirectURI, verifier, "")
+		require.Equal(t, http.StatusOK, status, "token exchange failed: %v", tok)
+
+		accessToken, _ := tok["access_token"].(string)
+		require.NotEmpty(t, accessToken)
+
+		claims := decodeJWTPayload(t, accessToken)
+		require.True(t, audMatches(claims["aud"], mcpResource), "aud must default to {public}/mcp, got: %v", claims["aud"])
+
+		projStatus, projBody := apiGET(t, addr, "/api/projects", accessToken)
+		require.Equal(t, http.StatusOK, projStatus, "%s", projBody)
+
+		meStatus, meBody := apiGET(t, addr, "/api/me", accessToken)
+		require.Equal(t, http.StatusOK, meStatus, "%s", meBody)
+		var me struct {
+			Email  string   `json:"email"`
+			Tenant string   `json:"tenant"`
+			Groups []string `json:"groups"`
+		}
+		require.NoError(t, json.Unmarshal(meBody, &me))
+		require.Equal(t, idp.User.Email, me.Email)
+		require.Equal(t, "acme", me.Tenant)
+		require.Equal(t, idp.User.Groups, me.Groups)
+	})
+
+	// Scenario 9: the /api auth matrix. No token and a garbage token both 401. A token that
+	// verified fine but was then revoked also 401s (the same LocalVerifier instance backs both
+	// /mcp and /api). A token for an identity whose email domain admits no configured tenant
+	// verifies fine but 403s with "no_access" — proving /api, unlike /mcp, surfaces that
+	// distinction instead of collapsing it to 401.
+	t.Run("APIAuthMatrix", func(t *testing.T) {
+		noTokStatus, _ := apiGET(t, addr, "/api/projects", "")
+		require.Equal(t, http.StatusUnauthorized, noTokStatus)
+
+		garbageStatus, _ := apiGET(t, addr, "/api/projects", "not-a-real-token")
+		require.Equal(t, http.StatusUnauthorized, garbageStatus)
+
+		redirectURI := "https://" + conformanceRedirectURIHost + "/cb9"
+		clientID, clientSecret, _ := registerClient(t, addr, redirectURI, "Conformance Client 9")
+		query, verifier := authorizeQuery(clientID, redirectURI, "state-9-0123456789abcdef0123456789", "openid", "")
+		browser := newBrowser(t, upstreamTLS, conformanceRedirectURIHost, publicHost, addr)
+		code, _ := obtainAuthCode(t, browser, addr, query)
+		exStatus, tok := exchangeToken(t, addr, clientID, clientSecret, code, redirectURI, verifier, "")
+		require.Equal(t, http.StatusOK, exStatus, "%v", tok)
+		accessToken, _ := tok["access_token"].(string)
+		require.NotEmpty(t, accessToken)
+
+		preRevokeStatus, _ := apiGET(t, addr, "/api/projects", accessToken)
+		require.NotEqual(t, http.StatusUnauthorized, preRevokeStatus, "token must be valid before revocation")
+
+		revokeToken(t, addr, clientID, clientSecret, accessToken)
+
+		revokedStatus, _ := apiGET(t, addr, "/api/projects", accessToken)
+		require.Equal(t, http.StatusUnauthorized, revokedStatus, "a revoked access token must be rejected by /api same as /mcp")
+
+		originalEmail := idp.User.Email
+		idp.User.Email = "user@example.com" // baseConfig's sole tenant admits only "acme.com"
+		defer func() { idp.User.Email = originalEmail }()
+
+		tlRedirectURI := "https://" + conformanceRedirectURIHost + "/cb9b"
+		tlClientID, tlClientSecret, _ := registerClient(t, addr, tlRedirectURI, "Conformance Client 9b")
+		tlQuery, tlVerifier := authorizeQuery(tlClientID, tlRedirectURI, "state-9b-0123456789abcdef0123456789", "openid", "")
+		tlBrowser := newBrowser(t, upstreamTLS, conformanceRedirectURIHost, publicHost, addr)
+		tlCode, _ := obtainAuthCode(t, tlBrowser, addr, tlQuery)
+		tlExStatus, tlTok := exchangeToken(t, addr, tlClientID, tlClientSecret, tlCode, tlRedirectURI, tlVerifier, "")
+		require.Equal(t, http.StatusOK, tlExStatus, "%v", tlTok)
+		tenantlessToken, _ := tlTok["access_token"].(string)
+		require.NotEmpty(t, tenantlessToken)
+
+		tenantlessStatus, tenantlessBody := apiGET(t, addr, "/api/projects", tenantlessToken)
+		require.Equal(t, http.StatusForbidden, tenantlessStatus, "%s", tenantlessBody)
+		require.Contains(t, string(tenantlessBody), "no_access")
+	})
+
+	// Scenario 10: an external (non-web) REST client's recipe — its own DCR registration, its
+	// own loopback redirect URI, human consent (it is not the first-party web client), PKCE,
+	// token exchange, and a bearer call to /api/projects. This proves /api is reachable by any
+	// third-party client through the exact same recipe as /mcp, not just by the bundled SPA.
+	t.Run("ExternalClientRecipe", func(t *testing.T) {
+		const loopbackHost = "127.0.0.4"
+		redirectURI := "http://" + loopbackHost + ":49160/cb10"
+		clientID, clientSecret, _ := registerClient(t, addr, redirectURI, "External REST Client")
+
+		query, verifier := authorizeQuery(clientID, redirectURI, "state-10-0123456789abcdef0123456789",
+			"openid profile email groups", "")
+		browser := newBrowser(t, upstreamTLS, loopbackHost, publicHost, addr)
+		code, _ := obtainAuthCode(t, browser, addr, query)
+
+		status, tok := exchangeToken(t, addr, clientID, clientSecret, code, redirectURI, verifier, "")
+		require.Equal(t, http.StatusOK, status, "%v", tok)
+		accessToken, _ := tok["access_token"].(string)
+		require.NotEmpty(t, accessToken)
+
+		projStatus, projBody := apiGET(t, addr, "/api/projects", accessToken)
+		require.Equal(t, http.StatusOK, projStatus, "%s", projBody)
+	})
+
+	// Scenario 11 (web enabled leg): the OpenAPI document and docs UI are reachable completely
+	// unauthenticated, both at their /api/... paths and at their unauthenticated root aliases.
+	t.Run("PublicSpecAndDocsRoutes", func(t *testing.T) {
+		for _, path := range []string{"/openapi.json", "/docs", "/api/openapi.json", "/api/docs"} {
+			resp, err := http.Get("http://" + addr + path) // no Authorization header at all
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+			require.Equal(t, http.StatusOK, resp.StatusCode, path)
+		}
+	})
+
+	// Scenario 11 (web disabled leg): a second, independent server booted with web.enabled:
+	// false must 404 the spec routes while the always-on authorization server keeps routing
+	// /oauth/authorize.
+	t.Run("WebDisabledSpecRoutes404", func(t *testing.T) {
+		idp2 := idptest.New(t)
+		idp2.User.Email = "user@acme.com"
+		addr2 := freeAddr(t)
+		cfgPath2 := writeConfig(t, baseConfig(t, idp2, addr2, "")+"web:\n  enabled: false\n")
+		stop2 := runServer(t, cfgPath2)
+		defer stop2()
+		waitReady(t, addr2)
+
+		specResp, err := http.Get("http://" + addr2 + "/openapi.json")
+		require.NoError(t, err)
+		require.NoError(t, specResp.Body.Close())
+		require.Equal(t, http.StatusNotFound, specResp.StatusCode)
+
+		authResp, err := http.Get("http://" + addr2 + "/oauth/authorize")
+		require.NoError(t, err)
+		require.NoError(t, authResp.Body.Close())
+		require.NotEqual(t, http.StatusNotFound, authResp.StatusCode, "/oauth/authorize must route even when web is disabled")
+	})
+}

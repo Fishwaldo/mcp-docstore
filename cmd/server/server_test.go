@@ -46,10 +46,24 @@ func rootCAFile(t *testing.T, pemBytes []byte) string {
 }
 
 // baseConfig returns a minimal config YAML wiring the embedded OAuth authorization server to
-// federate login to idp. dbPath, when non-empty, pins the sqlite DSN to a real file (rather
-// than a fresh temp one) so a second Run against the same path reuses the persisted key
-// material.
+// federate login to idp, using the fixed test public_url "https://docs.example.com". dbPath,
+// when non-empty, pins the sqlite DSN to a real file (rather than a fresh temp one) so a second
+// Run against the same path reuses the persisted key material.
 func baseConfig(t *testing.T, idp *idptest.Server, listenAddr, dbPath string) string {
+	t.Helper()
+	return baseConfigWithPublicURL(t, idp, "https://docs.example.com", listenAddr, dbPath)
+}
+
+// baseConfigWithPublicURL is baseConfig generalized over public_url. Every conformance scenario
+// but the SPA one registers its client on a foreign host (an IP literal or a loopback address)
+// specifically to dodge the mcp-oauth library's strict, fail-closed DNS validation of redirect
+// URIs (a real DNS lookup against a hostname that resolves nowhere in this test environment
+// otherwise blocks authorization outright: see redirect_uri_security.go's
+// "DNS resolution failed ... strict mode - blocking"). The seeded docstore-web client is the
+// exception — its redirect_uri is same-origin with public_url by construction
+// (oauthsrv.SeedWebClient) — so a caller that needs to drive its flow must pass an IP-literal
+// publicURL here: net.ParseIP short-circuits the DNS lookup entirely for those.
+func baseConfigWithPublicURL(t *testing.T, idp *idptest.Server, publicURL, listenAddr, dbPath string) string {
 	t.Helper()
 	dir := t.TempDir()
 	idxPath := filepath.Join(dir, "idx.bleve")
@@ -61,7 +75,7 @@ func baseConfig(t *testing.T, idp *idptest.Server, listenAddr, dbPath string) st
 		listen = "listen_addr: \"" + listenAddr + "\"\n"
 	}
 	caPath := rootCAFile(t, idp.CACertPEM)
-	return "public_url: \"https://docs.example.com\"\n" +
+	return "public_url: \"" + publicURL + "\"\n" +
 		listen +
 		"bleve_index_path: \"" + idxPath + "\"\n" +
 		"database: { driver: sqlite, dsn: \"file:" + dbPath + "?_pragma=foreign_keys(1)\" }\n" +
