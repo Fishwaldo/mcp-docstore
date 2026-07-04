@@ -115,6 +115,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 // Close closes the underlying database connection.
 func (s *Store) Close() error { return s.client.Close() }
 
+// EntClient returns the underlying ent client, so the composition root (cmd/server) can build
+// other ent-backed services — the embedded OAuth authorization server's entstore, in
+// particular — against this same connection pool rather than opening a second one. Package
+// store itself never needs this; it exists solely for that top-layer wiring.
+func (s *Store) EntClient() *ent.Client { return s.client }
+
 // EnsureTenant returns the tenant with the given key, creating it if absent.
 //
 // TODO: the check-then-create below is not atomic. Concurrent callers for the same key

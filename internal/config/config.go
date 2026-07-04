@@ -5,7 +5,9 @@
 package config
 
 import (
+	"crypto/x509"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -26,10 +28,18 @@ type Config struct {
 	MaxRequestBytes int64        `mapstructure:"max_request_bytes"`
 	Database        Database     `mapstructure:"database"`
 	OIDC            OIDC         `mapstructure:"oidc"`
+	OAuth           OAuth        `mapstructure:"oauth"`
 	Tenants         []TenantSpec `mapstructure:"tenants"`
 	Logging         Logging      `mapstructure:"logging"`
-	// Web configures the optional BFF for web UI sessions. When nil, the web UI is disabled.
-	Web *WebConfig `mapstructure:"web"`
+	// Web toggles the optional web UI (bearer-authenticated /api plus the embedded SPA at
+	// "/"). Absent or `web: {enabled: false}` disables it; only /mcp and the always-on
+	// embedded authorization server serve.
+	Web WebConfig `mapstructure:"web"`
+
+	// RootCAPool is derived from OIDC.RootCA by Load and is not read from YAML directly.
+	// It is nil unless oidc.root_ca names a file, in which case Load has already read and
+	// parsed it into a cert pool for the upstream IdP's TLS verification.
+	RootCAPool *x509.CertPool `mapstructure:"-"`
 }
 
 type Database struct {
@@ -37,25 +47,65 @@ type Database struct {
 	DSN    string `mapstructure:"dsn"`
 }
 
+// OIDC configures the upstream identity provider the authorization server federates
+// login to. The server itself is the OAuth issuer (see OAuth); this block is only the
+// upstream login leg used during the /oauth/authorize -> upstream -> /oauth/callback hop.
 type OIDC struct {
-	Issuer string `mapstructure:"issuer"`
-	// DiscoveryURL, when set, overrides the standard OIDC discovery location
-	// (issuer + /.well-known/openid-configuration). Point it at a provider that
-	// publishes its metadata document at an off-spec path — e.g. an RFC 8414
-	// authorization-server metadata URL (/.well-known/oauth-authorization-server).
-	// The document's "issuer" must match Issuer or startup fails.
-	DiscoveryURL string `mapstructure:"discovery_url"`
-	Audience     string `mapstructure:"audience"`
-	EmailClaim   string `mapstructure:"email_claim"`
-	GroupsClaim  string `mapstructure:"groups_claim"`
-	// EmailVerifiedPolicy controls how the "email_verified" claim gates a token:
-	//   "require"    — the claim must be present and true (default; most secure).
-	//   "if_present" — reject only if the claim is present and false.
-	//   "off"        — never check the claim.
-	EmailVerifiedPolicy string `mapstructure:"email_verified_policy"`
-	// DiscoveryTimeout bounds the HTTP calls for OIDC discovery and JWKS key refresh, so a
-	// hung or slow IdP can't block startup or token verification indefinitely. Default 15s.
+	Issuer       string `mapstructure:"issuer"`
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+	// Scopes are requested from the upstream IdP during login. Default
+	// [openid profile email groups offline_access]. offline_access is required for the
+	// upstream to issue a refresh token; without it token refresh cannot work and the AS
+	// falls back to full re-authentication when its cached provider token lapses.
+	Scopes []string `mapstructure:"scopes"`
+	// AllowPrivateIP permits the upstream issuer/discovery/token endpoints to resolve to
+	// RFC-1918 or loopback addresses, relaxing the default SSRF protection. Only set this
+	// for an internal IdP reachable solely on a private network; doing so is logged as a
+	// warning at startup.
+	AllowPrivateIP bool `mapstructure:"allow_private_ip"`
+	// RootCA, when set, is a PEM file path of additional CA certificates trusted for the
+	// upstream IdP's TLS connections (discovery, token, JWKS). Use for an internal IdP
+	// whose certificate isn't signed by a public CA. Load parses this into RootCAPool.
+	RootCA string `mapstructure:"root_ca"`
+	// DiscoveryTimeout bounds the HTTP calls for OIDC discovery and JWKS key refresh against
+	// the upstream IdP, so a hung or slow IdP can't block startup indefinitely. Default 15s.
 	DiscoveryTimeout time.Duration `mapstructure:"discovery_timeout"`
+	// Audience is unused; it exists only so Validate can detect a stale pre-authorization-
+	// server config file (from before the server became its own OAuth issuer) and fail with
+	// a pointer to the new format instead of silently mis-authenticating.
+	Audience string `mapstructure:"audience"`
+}
+
+// OAuth configures the embedded authorization server, which is always on: this server is
+// its own OAuth issuer, federating login to the upstream IdP configured by OIDC.
+type OAuth struct {
+	// AccessTokenTTL is the lifetime of issued access tokens. Default 15m.
+	AccessTokenTTL time.Duration `mapstructure:"access_token_ttl"`
+	// RefreshTokenTTL is the lifetime of issued refresh tokens. Default 168h (7 days).
+	RefreshTokenTTL time.Duration `mapstructure:"refresh_token_ttl"`
+	// Registration controls dynamic client registration (RFC 7591): "open" (default) admits
+	// any client; "allowlist" restricts registration to redirect URIs named in
+	// RegistrationAllowlist.
+	Registration string `mapstructure:"registration"`
+	// RegistrationAllowlist lists the exact-match https:// redirect URIs admitted to dynamic
+	// client registration when Registration is "allowlist". Ignored otherwise.
+	RegistrationAllowlist []string `mapstructure:"registration_allowlist"`
+	// TrustProxy, when true, trusts proxy-supplied forwarding headers (e.g.
+	// X-Forwarded-For/Proto) for up to TrustedProxyCount hops, so the AS can compute the
+	// correct client IP and scheme behind a reverse proxy or load balancer.
+	TrustProxy bool `mapstructure:"trust_proxy"`
+	// TrustedProxyCount is the number of trusted proxy hops to peel off forwarding headers
+	// when TrustProxy is true. Default 1.
+	TrustedProxyCount int `mapstructure:"trusted_proxy_count"`
+	// CookieSecure marks the authorization server's consent cookie as Secure (HTTPS-only).
+	// It is a pointer so an unset value defaults to true (secure by default); set it to
+	// false only to opt out for local plain-HTTP development.
+	CookieSecure *bool `mapstructure:"cookie_secure"`
+	// SweepInterval is how often expired rows (authorization codes/states, refresh tokens,
+	// revoked JTIs, cached provider tokens/userinfo, aged-out revoked refresh-token families)
+	// are purged from the OAuth store. Default 1h.
+	SweepInterval time.Duration `mapstructure:"sweep_interval"`
 }
 
 // Logging configures the slog output. Level is debug|info|warn|error; Format is json|text.
@@ -79,21 +129,12 @@ type TenantMatch struct {
 	Emails  []string `mapstructure:"emails"`
 }
 
-// WebConfig configures the optional BFF for web UI sessions. All fields except
-// PostLogoutRedirectURL are required when the web block is present.
+// WebConfig gates the optional web UI: bearer-authenticated /api plus the embedded SPA at
+// "/", served alongside the always-on embedded authorization server. The web server holds
+// no session/cookie/timeout policy of its own — it authenticates with the same bearer-token
+// verifier /mcp uses — so Enabled is the only knob left.
 type WebConfig struct {
-	ClientID              string   `mapstructure:"client_id"`
-	ClientSecret          string   `mapstructure:"client_secret"`
-	RedirectURL           string   `mapstructure:"redirect_url"`
-	PostLogoutRedirectURL string   `mapstructure:"post_logout_redirect_url"`
-	Scopes                []string `mapstructure:"scopes"`
-	// CookieSecure marks the session and CSRF cookies as Secure (HTTPS-only). It is a
-	// pointer so an unset value defaults to true (secure by default); set it to false
-	// only to opt out for local plain-HTTP development.
-	CookieSecure    *bool         `mapstructure:"cookie_secure"`
-	IdleTimeout     time.Duration `mapstructure:"idle_timeout"`
-	AbsoluteTimeout time.Duration `mapstructure:"absolute_timeout"`
-	SweepInterval   time.Duration `mapstructure:"sweep_interval"`
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // Load reads, defaults, normalizes, and validates the config at path.
@@ -104,10 +145,12 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("snapshot_retention", 10)
 	v.SetDefault("session_timeout", 2*time.Minute)
 	v.SetDefault("max_request_bytes", 4<<20)
-	v.SetDefault("oidc.email_claim", "email")
-	v.SetDefault("oidc.groups_claim", "groups")
-	v.SetDefault("oidc.email_verified_policy", "require")
+	v.SetDefault("oidc.scopes", []string{"openid", "profile", "email", "groups", "offline_access"})
 	v.SetDefault("oidc.discovery_timeout", 15*time.Second)
+	v.SetDefault("oauth.access_token_ttl", 15*time.Minute)
+	v.SetDefault("oauth.refresh_token_ttl", 168*time.Hour)
+	v.SetDefault("oauth.registration", "open")
+	v.SetDefault("oauth.trusted_proxy_count", 1)
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.format", "json")
 
@@ -120,6 +163,9 @@ func Load(path string) (*Config, error) {
 	}
 	cfg.normalize()
 	cfg.applyDefaults()
+	if err := cfg.loadRootCA(); err != nil {
+		return nil, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -144,24 +190,32 @@ func (c *Config) normalize() {
 }
 
 func (c *Config) applyDefaults() {
-	if c.Web != nil {
-		if len(c.Web.Scopes) == 0 {
-			c.Web.Scopes = []string{"openid", "email", "profile", "groups"}
-		}
-		if c.Web.IdleTimeout <= 0 {
-			c.Web.IdleTimeout = 24 * time.Hour
-		}
-		if c.Web.AbsoluteTimeout <= 0 {
-			c.Web.AbsoluteTimeout = 168 * time.Hour
-		}
-		if c.Web.SweepInterval <= 0 {
-			c.Web.SweepInterval = 1 * time.Hour
-		}
-		if c.Web.CookieSecure == nil {
-			secure := true
-			c.Web.CookieSecure = &secure
-		}
+	if c.OAuth.SweepInterval <= 0 {
+		c.OAuth.SweepInterval = time.Hour
 	}
+	if c.OAuth.CookieSecure == nil {
+		secure := true
+		c.OAuth.CookieSecure = &secure
+	}
+}
+
+// loadRootCA reads and parses OIDC.RootCA, if set, into RootCAPool. A configured path that
+// is missing or contains no valid PEM certificate fails Load outright, since a silently
+// empty pool would fall back to the system trust store and mask a misconfiguration.
+func (c *Config) loadRootCA() error {
+	if c.OIDC.RootCA == "" {
+		return nil
+	}
+	pemBytes, err := os.ReadFile(c.OIDC.RootCA)
+	if err != nil {
+		return fmt.Errorf("read oidc.root_ca %q: %w", c.OIDC.RootCA, err)
+	}
+	pool := x509.NewCertPool()
+	if ok := pool.AppendCertsFromPEM(pemBytes); !ok {
+		return fmt.Errorf("oidc.root_ca %q: no valid PEM certificate found", c.OIDC.RootCA)
+	}
+	c.RootCAPool = pool
+	return nil
 }
 
 // Validate enforces structural rules and the uniqueness guarantee that no domain or
@@ -178,13 +232,18 @@ func (c *Config) Validate() error {
 	if c.OIDC.Issuer == "" {
 		return fmt.Errorf("oidc.issuer is required")
 	}
-	if c.OIDC.Audience == "" {
-		return fmt.Errorf("oidc.audience is required")
+	// The stale-audience guard must run before the client_id/client_secret checks: a genuine
+	// pre-authorization-server config has issuer+audience but never had client_id/client_secret,
+	// so checking those first would mask the actionable migration message with a generic
+	// "client_id is required" error.
+	if c.OIDC.Audience != "" {
+		return fmt.Errorf("oidc.audience is no longer used: the server is now its own OAuth issuer; see config.example.yaml")
 	}
-	switch c.OIDC.EmailVerifiedPolicy {
-	case "require", "if_present", "off":
-	default:
-		return fmt.Errorf("oidc.email_verified_policy must be one of require|if_present|off, got %q", c.OIDC.EmailVerifiedPolicy)
+	if c.OIDC.ClientID == "" {
+		return fmt.Errorf("oidc.client_id is required")
+	}
+	if c.OIDC.ClientSecret == "" {
+		return fmt.Errorf("oidc.client_secret is required")
 	}
 	if c.PublicURL == "" {
 		return fmt.Errorf("public_url is required")
@@ -200,6 +259,23 @@ func (c *Config) Validate() error {
 	}
 	if c.OIDC.DiscoveryTimeout <= 0 {
 		return fmt.Errorf("oidc.discovery_timeout must be positive (got %s)", c.OIDC.DiscoveryTimeout)
+	}
+	switch c.OAuth.Registration {
+	case "open":
+	case "allowlist":
+		if len(c.OAuth.RegistrationAllowlist) == 0 {
+			return fmt.Errorf("oauth.registration_allowlist must have at least one entry when oauth.registration is \"allowlist\"")
+		}
+		for _, u := range c.OAuth.RegistrationAllowlist {
+			if !strings.HasPrefix(u, "https://") {
+				return fmt.Errorf("oauth.registration_allowlist entry %q must be an https:// URL", u)
+			}
+		}
+	default:
+		return fmt.Errorf("oauth.registration must be one of open|allowlist, got %q", c.OAuth.Registration)
+	}
+	if c.OAuth.TrustedProxyCount < 0 {
+		return fmt.Errorf("oauth.trusted_proxy_count must be >= 0 (got %d)", c.OAuth.TrustedProxyCount)
 	}
 	seenKey := map[string]bool{}
 	seenDomain := map[string]string{}
@@ -234,17 +310,6 @@ func (c *Config) Validate() error {
 	case "", "json", "text":
 	default:
 		return fmt.Errorf("logging.format must be json or text, got %q", c.Logging.Format)
-	}
-	if c.Web != nil {
-		if c.Web.ClientID == "" {
-			return fmt.Errorf("web.client_id is required")
-		}
-		if c.Web.ClientSecret == "" {
-			return fmt.Errorf("web.client_secret is required")
-		}
-		if c.Web.RedirectURL == "" {
-			return fmt.Errorf("web.redirect_url is required")
-		}
 	}
 	return nil
 }

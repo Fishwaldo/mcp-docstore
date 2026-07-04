@@ -32,9 +32,9 @@ func (e *IdentityError) Error() string {
 func (e *IdentityError) Unwrap() error { return e.Err }
 
 // ResolveIdentity turns verified OIDC claims into a store.Identity via the tenant
-// resolver and UpsertUser — the single path shared by the MCP bearer verifier and the
-// web BFF callback. Failures are returned as *IdentityError so each transport maps them
-// without duplicating the resolve/UpsertUser sequence.
+// resolver and UpsertUser — the single path shared by every bearer-token transport (the
+// MCP verifier and the web API's RequireBearer). Failures are returned as *IdentityError
+// so each transport maps them without duplicating the resolve/UpsertUser sequence.
 func ResolveIdentity(ctx context.Context, resolver *tenant.Resolver, st *store.Store, claims *Claims) (store.Identity, error) {
 	key, ok := resolver.Resolve(claims.Email)
 	if !ok {

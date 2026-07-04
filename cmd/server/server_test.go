@@ -5,23 +5,20 @@ package server_test
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/coreos/go-oidc/v3/oidc/oidctest"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Fishwaldo/mcp-docstore/cmd/server"
+	"github.com/Fishwaldo/mcp-docstore/internal/oauthsrv/idptest"
 )
 
 func discardLogger() *slog.Logger {
@@ -37,49 +34,68 @@ func writeConfig(t *testing.T, body string) string {
 	return path
 }
 
-func baseConfig(t *testing.T, issuer, listenAddr string) string {
+// rootCAFile writes pemBytes (the upstream idptest server's certificate) to a temp file and
+// returns its path, for use as oidc.root_ca — config.Load only accepts a file path, unlike the
+// in-process *x509.CertPool other packages' tests wire directly into oauthsrv.Config.
+func rootCAFile(t *testing.T, pemBytes []byte) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ca.pem")
+	require.NoError(t, os.WriteFile(path, pemBytes, 0o600))
+	return path
+}
+
+// baseConfig returns a minimal config YAML wiring the embedded OAuth authorization server to
+// federate login to idp, using the fixed test public_url "https://docs.example.com". dbPath,
+// when non-empty, pins the sqlite DSN to a real file (rather than a fresh temp one) so a second
+// Run against the same path reuses the persisted key material.
+func baseConfig(t *testing.T, idp *idptest.Server, listenAddr, dbPath string) string {
+	t.Helper()
+	return baseConfigWithPublicURL(t, idp, "https://docs.example.com", listenAddr, dbPath)
+}
+
+// baseConfigWithPublicURL is baseConfig generalized over public_url. Every conformance scenario
+// but the SPA one registers its client on a foreign host (an IP literal or a loopback address)
+// specifically to dodge the mcp-oauth library's strict, fail-closed DNS validation of redirect
+// URIs (a real DNS lookup against a hostname that resolves nowhere in this test environment
+// otherwise blocks authorization outright: see redirect_uri_security.go's
+// "DNS resolution failed ... strict mode - blocking"). The seeded docstore-web client is the
+// exception — its redirect_uri is same-origin with public_url by construction
+// (oauthsrv.SeedWebClient) — so a caller that needs to drive its flow must pass an IP-literal
+// publicURL here: net.ParseIP short-circuits the DNS lookup entirely for those.
+func baseConfigWithPublicURL(t *testing.T, idp *idptest.Server, publicURL, listenAddr, dbPath string) string {
 	t.Helper()
 	dir := t.TempDir()
 	idxPath := filepath.Join(dir, "idx.bleve")
-	dbPath := filepath.Join(dir, "db.sqlite")
+	if dbPath == "" {
+		dbPath = filepath.Join(dir, "db.sqlite")
+	}
 	listen := ""
 	if listenAddr != "" {
 		listen = "listen_addr: \"" + listenAddr + "\"\n"
 	}
-	return "public_url: \"https://docs.example.com\"\n" +
+	caPath := rootCAFile(t, idp.CACertPEM)
+	return "public_url: \"" + publicURL + "\"\n" +
 		listen +
 		"bleve_index_path: \"" + idxPath + "\"\n" +
 		"database: { driver: sqlite, dsn: \"file:" + dbPath + "?_pragma=foreign_keys(1)\" }\n" +
-		"oidc: { issuer: \"" + issuer + "\", audience: \"mcp-docstore\" }\n" +
+		"oidc:\n" +
+		"  issuer: \"" + idp.URL + "\"\n" +
+		"  client_id: \"upstream-client\"\n" +
+		"  client_secret: \"upstream-secret\"\n" +
+		"  allow_private_ip: true\n" +
+		"  root_ca: \"" + caPath + "\"\n" +
 		"tenants:\n" +
 		"  - { key: acme, name: Acme, match: { domains: [\"acme.com\"] } }\n"
 }
 
-func TestRunRebuildIndex(t *testing.T) {
-	cfgPath := writeConfig(t, baseConfig(t, "https://idp.example.com", ""))
-	err := server.Run(context.Background(), []string{"--config", cfgPath, "rebuild-index"}, discardLogger())
-	require.NoError(t, err)
-}
-
-func TestRunUnknownSubcommand(t *testing.T) {
-	cfgPath := writeConfig(t, baseConfig(t, "https://idp.example.com", ""))
-	err := server.Run(context.Background(), []string{"--config", cfgPath, "bogus"}, discardLogger())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "bogus")
-}
-
-// startOIDC spins up an in-process OIDC server and returns its issuer URL.
-func startOIDC(t *testing.T) string {
-	t.Helper()
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	srv := &oidctest.Server{
-		PublicKeys: []oidctest.PublicKey{{PublicKey: priv.Public(), KeyID: "test-key", Algorithm: oidc.RS256}},
-	}
-	ts := httptest.NewServer(srv)
-	t.Cleanup(ts.Close)
-	srv.SetIssuer(ts.URL)
-	return ts.URL
+// webConfig appends a web: block enabling the web UI. The SPA authenticates with the same
+// bearer tokens /mcp trusts (PKCE via the first-party "docstore-web" public client, auto-seeded
+// on boot), so unlike before it needs no OAuth client credentials or redirect URL of its own.
+func webConfig(base string) string {
+	return base +
+		"web:\n" +
+		"  enabled: true\n"
 }
 
 func freeAddr(t *testing.T) string {
@@ -91,10 +107,63 @@ func freeAddr(t *testing.T) string {
 	return addr
 }
 
+// waitReady polls the AS metadata endpoint (always mounted, web or not) until it responds.
+func waitReady(t *testing.T, addr string) {
+	t.Helper()
+	metaURL := "http://" + addr + "/.well-known/oauth-authorization-server"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := http.Get(metaURL)
+		if err == nil {
+			require.NoError(t, resp.Body.Close())
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never came up: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// runServer boots server.Run in the background and returns a stop func that cancels it and
+// blocks until Run has returned (failing the test if Run returned a non-nil error).
+func runServer(t *testing.T, cfgPath string) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+	return func() {
+		cancel()
+		select {
+		case err := <-runErr:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Run did not return after context cancel")
+		}
+	}
+}
+
+func TestRunRebuildIndex(t *testing.T) {
+	idp := idptest.New(t)
+	cfgPath := writeConfig(t, baseConfig(t, idp, "", ""))
+	err := server.Run(context.Background(), []string{"--config", cfgPath, "rebuild-index"}, discardLogger())
+	require.NoError(t, err)
+}
+
+func TestRunUnknownSubcommand(t *testing.T) {
+	idp := idptest.New(t)
+	cfgPath := writeConfig(t, baseConfig(t, idp, "", ""))
+	err := server.Run(context.Background(), []string{"--config", cfgPath, "bogus"}, discardLogger())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bogus")
+}
+
 func TestRunGracefulShutdown(t *testing.T) {
-	issuer := startOIDC(t)
+	idp := idptest.New(t)
 	addr := freeAddr(t)
-	cfgPath := writeConfig(t, baseConfig(t, issuer, addr))
+	cfgPath := writeConfig(t, baseConfig(t, idp, addr, ""))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -104,20 +173,7 @@ func TestRunGracefulShutdown(t *testing.T) {
 		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
 	}()
 
-	// Poll readiness deterministically — no arbitrary sleeps.
-	metaURL := "http://" + addr + "/.well-known/oauth-protected-resource"
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		resp, err := http.Get(metaURL)
-		if err == nil {
-			require.NoError(t, resp.Body.Close())
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("server never came up: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitReady(t, addr)
 
 	cancel() // simulate SIGTERM/SIGINT delivered to the signal context
 	select {
@@ -128,141 +184,197 @@ func TestRunGracefulShutdown(t *testing.T) {
 	}
 }
 
-func TestServeMetadataAndUnauthorized(t *testing.T) {
-	issuer := startOIDC(t)
+// TestASMetadataAndMCPUnauthorized boots with web enabled and asserts the embedded
+// authorization server's discovery documents are live and that /mcp still demands a bearer
+// token whose challenge points back at the protected-resource metadata.
+func TestASMetadataAndMCPUnauthorized(t *testing.T) {
+	idp := idptest.New(t)
 	addr := freeAddr(t)
-	cfgPath := writeConfig(t, baseConfig(t, issuer, addr))
+	cfgPath := writeConfig(t, webConfig(baseConfig(t, idp, addr, "")))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	runErr := make(chan error, 1)
 	go func() {
 		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
 	}()
+	waitReady(t, addr)
 
-	metaURL := "http://" + addr + "/.well-known/oauth-protected-resource"
-	var resp *http.Response
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		var err error
-		resp, err = http.Get(metaURL)
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("metadata endpoint never came up: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
+	asResp, err := http.Get("http://" + addr + "/.well-known/oauth-authorization-server")
+	require.NoError(t, err)
+	asBody, err := io.ReadAll(asResp.Body)
+	require.NoError(t, err)
+	require.NoError(t, asResp.Body.Close())
+	require.Equal(t, http.StatusOK, asResp.StatusCode)
+	var asMeta struct {
+		Issuer string `json:"issuer"`
 	}
+	require.NoError(t, json.Unmarshal(asBody, &asMeta))
+	require.Equal(t, "https://docs.example.com", asMeta.Issuer)
+
+	prmResp, err := http.Get("http://" + addr + "/.well-known/oauth-protected-resource")
+	require.NoError(t, err)
+	prmBody, err := io.ReadAll(prmResp.Body)
+	require.NoError(t, err)
+	require.NoError(t, prmResp.Body.Close())
+	require.Equal(t, http.StatusOK, prmResp.StatusCode)
+	var prmMeta struct {
+		Resource string `json:"resource"`
+	}
+	require.NoError(t, json.Unmarshal(prmBody, &prmMeta))
+	require.Equal(t, "https://docs.example.com/mcp", prmMeta.Resource)
+
+	mcpResp, err := http.Post("http://"+addr+"/mcp", "application/json", nil)
+	require.NoError(t, err)
+	require.NoError(t, mcpResp.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
+	require.Contains(t, mcpResp.Header.Get("WWW-Authenticate"), "resource_metadata")
+
+	cancel()
+	select {
+	case err := <-runErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// TestMCPGarbageBearerUnauthorized asserts a syntactically-present-but-invalid bearer token is
+// rejected the same way an absent one is, and that the discovery endpoints stay up regardless.
+func TestMCPGarbageBearerUnauthorized(t *testing.T) {
+	idp := idptest.New(t)
+	addr := freeAddr(t)
+	cfgPath := writeConfig(t, baseConfig(t, idp, addr, ""))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+	waitReady(t, addr)
+
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/mcp", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer not-a-real-token")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	for _, path := range []string{
+		"/.well-known/oauth-authorization-server",
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/jwks.json",
+	} {
+		metaResp, err := http.Get("http://" + addr + path)
+		require.NoError(t, err)
+		require.NoError(t, metaResp.Body.Close())
+		require.Equal(t, http.StatusOK, metaResp.StatusCode, path)
+	}
+
+	cancel()
+	select {
+	case err := <-runErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// TestWebDisabledASAlwaysOn asserts that with no web: block the embedded authorization server
+// still routes /oauth/authorize (it is never conditional on the web UI), while the BFF's own
+// /auth/login route is absent (404).
+func TestWebDisabledASAlwaysOn(t *testing.T) {
+	idp := idptest.New(t)
+	addr := freeAddr(t)
+	cfgPath := writeConfig(t, baseConfig(t, idp, addr, ""))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+	waitReady(t, addr)
+
+	authorizeResp, err := http.Get("http://" + addr + "/oauth/authorize")
+	require.NoError(t, err)
+	require.NoError(t, authorizeResp.Body.Close())
+	require.NotEqual(t, http.StatusNotFound, authorizeResp.StatusCode, "/oauth/authorize must route even when web: is absent")
+
+	loginResp, err := http.Get("http://" + addr + "/auth/login")
+	require.NoError(t, err)
+	require.NoError(t, loginResp.Body.Close())
+	require.Equal(t, http.StatusNotFound, loginResp.StatusCode, "the BFF must not be mounted when web: is absent")
+
+	// / is not the MCP handler either; ServeMux returns 404.
+	rootResp, err := http.Get("http://" + addr + "/")
+	require.NoError(t, err)
+	require.NoError(t, rootResp.Body.Close())
+	require.Equal(t, http.StatusNotFound, rootResp.StatusCode)
+
+	cancel()
+	select {
+	case err := <-runErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// jwksKID fetches /.well-known/jwks.json and returns the sole key's kid.
+func jwksKID(t *testing.T, addr string) string {
+	t.Helper()
+	resp, err := http.Get("http://" + addr + "/.well-known/jwks.json")
+	require.NoError(t, err)
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Contains(t, string(body), "https://docs.example.com")
 
-	// MCP endpoint moved to /mcp: unauthenticated request must be rejected with 401 + WWW-Authenticate.
-	unauth, err := http.Get("http://" + addr + "/mcp")
-	require.NoError(t, err)
-	defer unauth.Body.Close()
-	require.Equal(t, http.StatusUnauthorized, unauth.StatusCode)
-	require.NotEmpty(t, unauth.Header.Get("WWW-Authenticate"))
-
-	// Root is NOT the MCP handler when web UI is disabled — it should return 404.
-	rootResp, err := http.Get("http://" + addr + "/")
-	require.NoError(t, err)
-	defer rootResp.Body.Close()
-	require.Equal(t, http.StatusNotFound, rootResp.StatusCode)
-
-	// The icon route is served unauthenticated as image/png.
-	iconResp, err := http.Get("http://" + addr + "/icon-512.png")
-	require.NoError(t, err)
-	iconBody, err := io.ReadAll(iconResp.Body)
-	require.NoError(t, err)
-	require.NoError(t, iconResp.Body.Close())
-	require.Equal(t, http.StatusOK, iconResp.StatusCode)
-	require.Equal(t, "image/png", iconResp.Header.Get("Content-Type"))
-	require.NotEmpty(t, iconBody)
-
-	cancel()
-	select {
-	case err := <-runErr:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after context cancel")
+	var set struct {
+		Keys []struct {
+			Kid string `json:"kid"`
+		} `json:"keys"`
 	}
+	require.NoError(t, json.Unmarshal(body, &set))
+	require.Len(t, set.Keys, 1)
+	require.NotEmpty(t, set.Keys[0].Kid)
+	return set.Keys[0].Kid
 }
 
-// webConfig appends a web: block to a base config string, using the given OIDC issuer for
-// the BFF's confidential client. This is the same issuer as cfg.OIDC.Issuer so
-// web.NewOIDCClient can perform discovery against the in-process oidctest server.
-func webConfig(base, issuer string) string {
-	return base +
-		"web:\n" +
-		"  client_id: web-client\n" +
-		"  client_secret: web-secret\n" +
-		"  redirect_url: \"" + issuer + "/callback\"\n" +
-		"  cookie_secure: false\n"
+// TestKeyMaterialStableAcrossReboots boots the server twice against the same on-disk database
+// and asserts the second boot loads (rather than regenerates) the persisted signing key: the
+// JWKS kid is identical across both Run-level constructions.
+func TestKeyMaterialStableAcrossReboots(t *testing.T) {
+	idp := idptest.New(t)
+	dbPath := filepath.Join(t.TempDir(), "db.sqlite")
+
+	addr1 := freeAddr(t)
+	cfgPath1 := writeConfig(t, baseConfig(t, idp, addr1, dbPath))
+	stop1 := runServer(t, cfgPath1)
+	waitReady(t, addr1)
+	kid1 := jwksKID(t, addr1)
+	stop1()
+
+	addr2 := freeAddr(t)
+	cfgPath2 := writeConfig(t, baseConfig(t, idp, addr2, dbPath))
+	stop2 := runServer(t, cfgPath2)
+	waitReady(t, addr2)
+	kid2 := jwksKID(t, addr2)
+	stop2()
+
+	require.Equal(t, kid1, kid2, "the signing key (and its kid) must be reused across boots on the same database")
 }
 
-// TestMCPOnlyModeNoBearerAtRoot verifies the MCP-only (no web:) deployment: /mcp
-// triggers the bearer-auth challenge and / is not the MCP handler (returns 404).
-func TestMCPOnlyModeNoBearerAtRoot(t *testing.T) {
-	issuer := startOIDC(t)
-	addr := freeAddr(t)
-	cfgPath := writeConfig(t, baseConfig(t, issuer, addr))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	runErr := make(chan error, 1)
-	go func() {
-		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
-	}()
-
-	// Wait for server readiness via the metadata endpoint.
-	metaURL := "http://" + addr + "/.well-known/oauth-protected-resource"
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		resp, err := http.Get(metaURL)
-		if err == nil {
-			require.NoError(t, resp.Body.Close())
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("server never came up: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	// /mcp without a token → 401 + WWW-Authenticate (bearer middleware).
-	mcpResp, err := http.Get("http://" + addr + "/mcp")
-	require.NoError(t, err)
-	require.NoError(t, mcpResp.Body.Close())
-	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
-	require.NotEmpty(t, mcpResp.Header.Get("WWW-Authenticate"), "bearer challenge missing on /mcp")
-
-	// / is not the MCP handler in MCP-only mode; ServeMux returns 404.
-	rootResp, err := http.Get("http://" + addr + "/")
-	require.NoError(t, err)
-	require.NoError(t, rootResp.Body.Close())
-	require.Equal(t, http.StatusNotFound, rootResp.StatusCode, "/ must not be the MCP handler in MCP-only mode")
-
-	cancel()
-	select {
-	case err := <-runErr:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not return after context cancel")
-	}
-}
-
-// TestWebEnabledModeRoutes verifies that when web: is present the server mounts
-// /auth/login (redirect) and /api/projects (session-gated 401) in addition to /mcp.
+// TestWebEnabledModeRoutes verifies that when web.enabled is true the server mounts /api
+// (bearer-gated) and the unauthenticated OpenAPI document/SPA, in addition to /mcp and the
+// always-on protected-resource metadata.
 func TestWebEnabledModeRoutes(t *testing.T) {
-	issuer := startOIDC(t)
+	idp := idptest.New(t)
 	addr := freeAddr(t)
-	cfgPath := writeConfig(t, webConfig(baseConfig(t, issuer, addr), issuer))
+	cfgPath := writeConfig(t, webConfig(baseConfig(t, idp, addr, "")))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -271,40 +383,31 @@ func TestWebEnabledModeRoutes(t *testing.T) {
 	go func() {
 		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
 	}()
-
-	// Wait for server readiness.
-	metaURL := "http://" + addr + "/.well-known/oauth-protected-resource"
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		resp, err := http.Get(metaURL)
-		if err == nil {
-			require.NoError(t, resp.Body.Close())
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("server never came up: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitReady(t, addr)
 
 	// /mcp still requires a bearer token.
-	mcpResp, err := http.Get("http://" + addr + "/mcp")
+	mcpResp, err := http.Post("http://"+addr+"/mcp", "application/json", nil)
 	require.NoError(t, err)
 	require.NoError(t, mcpResp.Body.Close())
 	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
 
-	// /auth/login redirects to the IdP (302).
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	loginResp, err := client.Get("http://" + addr + "/auth/login")
+	// /openapi.json is one of the two documented unauthenticated GET paths (root alias).
+	specResp, err := http.Get("http://" + addr + "/openapi.json")
 	require.NoError(t, err)
-	require.NoError(t, loginResp.Body.Close())
-	require.Equal(t, http.StatusFound, loginResp.StatusCode)
+	require.NoError(t, specResp.Body.Close())
+	require.Equal(t, http.StatusOK, specResp.StatusCode)
 
-	// /api/projects without a session returns 401.
+	// /api/projects without a bearer token returns 401.
 	apiResp, err := http.Get("http://" + addr + "/api/projects")
 	require.NoError(t, err)
 	require.NoError(t, apiResp.Body.Close())
 	require.Equal(t, http.StatusUnauthorized, apiResp.StatusCode)
+
+	// The protected-resource metadata is always mounted, web enabled or not.
+	prmResp, err := http.Get("http://" + addr + "/.well-known/oauth-protected-resource")
+	require.NoError(t, err)
+	require.NoError(t, prmResp.Body.Close())
+	require.Equal(t, http.StatusOK, prmResp.StatusCode)
 
 	// / serves the SPA (200 with HTML).
 	rootResp, err := http.Get("http://" + addr + "/")
@@ -315,6 +418,54 @@ func TestWebEnabledModeRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rootResp.StatusCode)
 	require.Contains(t, rootResp.Header.Get("Content-Type"), "text/html")
 	require.NotEmpty(t, rootBody)
+
+	cancel()
+	select {
+	case err := <-runErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancel")
+	}
+}
+
+// TestWebDisabledNoAPIOrSPA verifies that with web.enabled: false (an explicit, present but
+// disabled block) neither /api nor the SPA/OpenAPI routes are mounted, while the embedded
+// authorization server and /mcp are unaffected.
+func TestWebDisabledNoAPIOrSPA(t *testing.T) {
+	idp := idptest.New(t)
+	addr := freeAddr(t)
+	cfgPath := writeConfig(t, baseConfig(t, idp, addr, "")+"web:\n  enabled: false\n")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- server.Run(ctx, []string{"--config", cfgPath, "serve"}, discardLogger())
+	}()
+	waitReady(t, addr)
+
+	specResp, err := http.Get("http://" + addr + "/openapi.json")
+	require.NoError(t, err)
+	require.NoError(t, specResp.Body.Close())
+	require.Equal(t, http.StatusNotFound, specResp.StatusCode)
+
+	apiResp, err := http.Get("http://" + addr + "/api/projects")
+	require.NoError(t, err)
+	require.NoError(t, apiResp.Body.Close())
+	require.Equal(t, http.StatusNotFound, apiResp.StatusCode)
+
+	// /oauth/authorize still routes (the AS is always on).
+	authorizeResp, err := http.Get("http://" + addr + "/oauth/authorize")
+	require.NoError(t, err)
+	require.NoError(t, authorizeResp.Body.Close())
+	require.NotEqual(t, http.StatusNotFound, authorizeResp.StatusCode, "/oauth/authorize must route even when web is disabled")
+
+	// /mcp still 401-challenges without a bearer token.
+	mcpResp, err := http.Post("http://"+addr+"/mcp", "application/json", nil)
+	require.NoError(t, err)
+	require.NoError(t, mcpResp.Body.Close())
+	require.Equal(t, http.StatusUnauthorized, mcpResp.StatusCode)
+	require.Contains(t, mcpResp.Header.Get("WWW-Authenticate"), "resource_metadata")
 
 	cancel()
 	select {

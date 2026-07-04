@@ -16,16 +16,46 @@ database:
   # and the server fails fast at startup without it (cascade deletes would orphan rows).
   dsn: "file:./data/docstore.db?_pragma=foreign_keys(1)"
 
+# oidc: the UPSTREAM identity provider that this server's own OAuth authorization server
+# federates login to. mcp-docstore is now its own OAuth issuer (see the oauth: block
+# below); this block is only the "log in via my company IdP" leg of that flow.
+#
+# Register exactly ONE confidential OIDC client on your IdP for this server, with a redirect
+# URI of "{public_url}/oauth/callback" (using public_url above). That single upstream client
+# is shared by every downstream MCP client and the web UI — they never talk to the IdP
+# directly, only to this server's own /oauth/authorize, /oauth/token, etc.
 oidc:
   issuer: "https://idp.example.com"
-  # discovery_url: override OIDC discovery for providers that publish metadata at an
-  # off-spec path (e.g. RFC 8414). The document's "issuer" must equal issuer above.
-  # discovery_url: "https://idp.example.com/.well-known/oauth-authorization-server"
-  audience: "mcp-docstore"                # the "aud" this resource server requires
-  email_claim: "email"
-  groups_claim: "groups"
-  email_verified_policy: "require"        # require | if_present | off — gate on the email_verified claim (default require)
-  discovery_timeout: 15s                  # bounds OIDC discovery + JWKS refresh HTTP calls
+  client_id: "docstore-upstream-client-id"
+  client_secret: "docstore-upstream-client-secret"
+  scopes: ["openid", "profile", "email", "groups", "offline_access"]  # defaults shown; requested from the upstream IdP at login
+  # offline_access is required for token refresh: the upstream IdP app must be granted it so
+  # the IdP returns a refresh token. Without it, refreshes fail once the cached provider token
+  # lapses and clients must re-authenticate.
+  discovery_timeout: 15s                            # bounds OIDC discovery + JWKS refresh HTTP calls
+  # allow_private_ip: set true ONLY if the upstream IdP resolves to an RFC-1918 or loopback
+  # address (e.g. an internal Dex/Keycloak on your LAN). Relaxes SSRF protection on the
+  # discovery/token/JWKS HTTP calls to that IdP and is logged as a warning at startup.
+  # allow_private_ip: false
+  # root_ca: PEM file of additional CA certificates to trust for the upstream IdP's TLS
+  # connections. Use this for an internal IdP whose certificate isn't signed by a public CA.
+  # root_ca: "/etc/mcp-docstore/idp-ca.pem"
+
+# oauth: configures the embedded OAuth authorization server (always on — this server issues
+# its own access/refresh tokens after federating login to oidc: above).
+oauth:
+  access_token_ttl: 15m       # lifetime of issued access tokens (default 15m)
+  refresh_token_ttl: 168h     # lifetime of issued refresh tokens (default 168h / 7 days)
+  registration: "open"        # "open" (default; any client may dynamically register) | "allowlist"
+  # registration_allowlist: exact-match https:// redirect URIs admitted to dynamic client
+  # registration when registration is "allowlist". Required (>=1 entry) in that mode; ignored
+  # otherwise.
+  # registration_allowlist:
+  #   - "https://client.example.com/callback"
+  trust_proxy: false          # trust proxy-supplied X-Forwarded-* headers for client IP/scheme
+  trusted_proxy_count: 1      # number of trusted proxy hops to peel off when trust_proxy is true
+  cookie_secure: true         # secure (HTTPS-only) consent cookie; default true. Set false ONLY for local http development
+  sweep_interval: 1h          # interval to reap expired oauth store rows (auth codes, refresh tokens, revocations)
 
 tenants:
   - key: acme
@@ -35,17 +65,9 @@ tenants:
       emails: ["contractor@gmail.com"]
     admins: ["alice@acme.com"]            # tenant admins (declarative; reconciled at login)
 
-# web: optional BFF config for web UI sessions. When present, enables the web UI;
-# when absent, the web UI is disabled. Requires a SEPARATE Okta confidential OIDC Web App
-# with groups and email claims released on it. The redirect_url must match the app's
-# /auth/callback URL exactly.
-#web:
-#  client_id: "okta-web-app-client-id"                              # required
-#  client_secret: "okta-web-app-client-secret"                      # required
-#  redirect_url: "https://docs.example.com/auth/callback"           # required; must match Okta app config
-#  post_logout_redirect_url: "https://example.com"                  # optional; where to redirect after logout
-#  scopes: ["openid", "email", "profile", "groups"]                 # defaults shown; customize as needed
-#  cookie_secure: true                                              # secure (HTTPS-only) cookies; default true. Set false ONLY for local http development
-#  idle_timeout: 24h                                                # reap idle sessions after this duration (default 24h)
-#  absolute_timeout: 168h                                           # absolute session lifetime (default 168h / 7 days)
-#  sweep_interval: 1h                                               # interval to reap expired sessions (default 1h)
+# web: toggles the optional web UI (bearer-authenticated /api plus the embedded SPA at "/").
+# When enabled: true, the SPA authenticates with the same bearer tokens /mcp trusts (PKCE via
+# the first-party "docstore-web" public client, auto-seeded on boot) — there is no session
+# cookie, CSRF, or timeout policy left to configure here.
+web:
+  enabled: true

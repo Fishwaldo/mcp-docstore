@@ -17,9 +17,9 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/security"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	"github.com/Fishwaldo/mcp-docstore/assets"
 	"github.com/Fishwaldo/mcp-docstore/internal/app"
@@ -27,6 +27,8 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/config"
 	"github.com/Fishwaldo/mcp-docstore/internal/index"
 	imcp "github.com/Fishwaldo/mcp-docstore/internal/mcp"
+	"github.com/Fishwaldo/mcp-docstore/internal/oauthsrv"
+	"github.com/Fishwaldo/mcp-docstore/internal/oauthsrv/entstore"
 	"github.com/Fishwaldo/mcp-docstore/internal/search"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 	"github.com/Fishwaldo/mcp-docstore/internal/tenant"
@@ -110,10 +112,55 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	oidcVerifier, err := auth.NewOIDCVerifier(ctx, cfg.OIDC.Issuer, cfg.OIDC.DiscoveryURL, cfg.OIDC.Audience, cfg.OIDC.EmailClaim, cfg.OIDC.GroupsClaim, cfg.OIDC.EmailVerifiedPolicy, cfg.OIDC.DiscoveryTimeout)
+
+	entc := st.EntClient()
+	km, err := oauthsrv.LoadOrCreateKeyMaterial(ctx, entc)
 	if err != nil {
 		return err
 	}
+	enc, err := security.NewEncryptor(km.EncryptionKey)
+	if err != nil {
+		return err
+	}
+	ost := entstore.New(entc, enc, 24*time.Hour)
+
+	// cookieSecure governs the AS's consent cookie. config.Load defaults cfg.OAuth.CookieSecure
+	// to true, so this only ever turns false via an explicit operator opt-out.
+	cookieSecure := true
+	if cfg.OAuth.CookieSecure != nil {
+		cookieSecure = *cfg.OAuth.CookieSecure
+	}
+	if !cookieSecure {
+		logger.Warn("oauth cookie_secure is false; the consent cookie will be sent over plain HTTP — use only for local development")
+	}
+
+	asvc, err := oauthsrv.New(ctx, oauthsrv.Config{
+		PublicURL:             cfg.PublicURL,
+		UpstreamIssuer:        cfg.OIDC.Issuer,
+		UpstreamClientID:      cfg.OIDC.ClientID,
+		UpstreamClientSecret:  cfg.OIDC.ClientSecret,
+		UpstreamScopes:        cfg.OIDC.Scopes,
+		AllowPrivateIP:        cfg.OIDC.AllowPrivateIP,
+		RootCAs:               cfg.RootCAPool,
+		DiscoveryTimeout:      cfg.OIDC.DiscoveryTimeout,
+		AccessTokenTTL:        cfg.OAuth.AccessTokenTTL,
+		RefreshTokenTTL:       cfg.OAuth.RefreshTokenTTL,
+		RegistrationOpen:      cfg.OAuth.Registration == "open",
+		RegistrationAllowlist: cfg.OAuth.RegistrationAllowlist,
+		TrustProxy:            cfg.OAuth.TrustProxy,
+		TrustedProxyCount:     cfg.OAuth.TrustedProxyCount,
+		CookieSecure:          cookieSecure,
+	}, ost, km, entc, logger)
+	if err != nil {
+		return err
+	}
+	defer asvc.Close()
+
+	keys, err := asvc.PublicKeys()
+	if err != nil {
+		return err
+	}
+	verifier := auth.NewLocalVerifier(cfg.PublicURL, []string{cfg.PublicURL + "/mcp", cfg.PublicURL}, keys, ost)
 
 	svc := app.NewService(st, idxSvc, logger)
 	icons := []sdkmcp.Icon{
@@ -123,7 +170,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	mcpServer := imcp.NewMCPServer(svc, auth.IdentityFromRequest, logger, icons, resolveVersion())
 
 	bearer := mcpauth.RequireBearerToken(
-		auth.NewResourceVerifier(oidcVerifier, resolver, st, logger, cfg.Logging.ClientIPHeader),
+		auth.NewResourceVerifier(verifier, resolver, st, logger, cfg.Logging.ClientIPHeader),
 		&mcpauth.RequireBearerTokenOptions{ResourceMetadataURL: cfg.PublicURL + metadataPath},
 	)
 	streamable := sdkmcp.NewStreamableHTTPHandler(
@@ -132,44 +179,31 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle(metadataPath, mcpauth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
-		Resource:               cfg.PublicURL,
-		AuthorizationServers:   []string{cfg.OIDC.Issuer},
-		BearerMethodsSupported: []string{"header"},
-	}))
 	mux.Handle("/icon-512.png", servePNG(assets.Icon512PNG))
 	mux.Handle("/icon-96.png", servePNG(assets.Icon96PNG))
 	mcpHandler := logRequests(logger, cfg.Logging.ClientIPHeader, bearer(streamable))
 	mux.Handle("/mcp", maxBytes(cfg.MaxRequestBytes, mcpHandler))
 
-	if cfg.Web != nil {
-		webCfg := web.Config{
-			ClientID:              cfg.Web.ClientID,
-			ClientSecret:          cfg.Web.ClientSecret,
-			RedirectURL:           cfg.Web.RedirectURL,
-			PostLogoutRedirectURL: cfg.Web.PostLogoutRedirectURL,
-			Scopes:                cfg.Web.Scopes,
-			CookieSecure:          cfg.Web.CookieSecure == nil || *cfg.Web.CookieSecure,
-			IdleTimeout:           cfg.Web.IdleTimeout,
-			AbsoluteTimeout:       cfg.Web.AbsoluteTimeout,
-			SweepInterval:         cfg.Web.SweepInterval,
-		}
-		if !webCfg.CookieSecure {
-			logger.Warn("web cookie_secure is false; session and CSRF cookies will be sent over plain HTTP — use only for local development")
-		}
-		oidcClient, err := web.NewOIDCClient(ctx, cfg.OIDC.Issuer, webCfg, cfg.OIDC.GroupsClaim)
-		if err != nil {
+	// asvc.Mount serves the RFC 9728 protected-resource metadata (formerly the go-sdk's
+	// ProtectedResourceMetadataHandler, registered directly at metadataPath), RFC 8414
+	// authorization-server metadata, the JWKS, and every /oauth/* endpoint. The embedded
+	// authorization server is always on, independent of cfg.Web.
+	asvc.Mount(mux)
+
+	go sweepOAuthStore(ctx, logger, ost, cfg.OAuth.SweepInterval)
+
+	if cfg.Web.Enabled {
+		if _, err := asvc.SeedWebClient(ctx); err != nil {
 			return err
 		}
-		webSrv := web.New(webCfg, st, svc, resolver, oidcClient, logger)
-		webSrv.StartSweeper(ctx)
+		webSrv := web.New(web.Config{}, st, svc, resolver, verifier, logger)
 		webSrv.Mount(mux)
 		spa, err := webSrv.SPAHandler()
 		if err != nil {
 			return err
 		}
 		mux.Handle("/", spa)
-		logger.Info("web UI enabled", "redirect_url", cfg.Web.RedirectURL)
+		logger.Info("web UI enabled")
 	}
 
 	// ReadTimeout / WriteTimeout are deliberately NOT set: Streamable HTTP holds
@@ -195,6 +229,30 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return err
 	}
 	return nil
+}
+
+// sweepOAuthStore periodically deletes expired rows from the embedded authorization server's
+// storage (authorization codes/states, refresh tokens, revoked JTIs, cached provider tokens and
+// userinfo, aged-out revoked refresh-token families) until ctx is cancelled. It runs regardless
+// of whether the web UI is enabled, since the authorization server itself is always on.
+func sweepOAuthStore(ctx context.Context, logger *slog.Logger, ost *entstore.Store, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := ost.DeleteExpired(ctx, time.Now())
+			if err != nil {
+				logger.ErrorContext(ctx, "oauth store sweep failed", "error", err)
+				continue
+			}
+			if n > 0 {
+				logger.DebugContext(ctx, "swept expired oauth rows", "count", n)
+			}
+		}
+	}
 }
 
 // servePNG returns a handler that serves the given PNG bytes at an unauthenticated route.

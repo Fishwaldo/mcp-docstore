@@ -1,15 +1,33 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { listProjects, getProject, listDocuments, getDocument, searchDocuments } from "./api";
+
+const getAccessToken = vi.fn();
+const refreshAccessToken = vi.fn();
+const login = vi.fn();
+
+vi.mock("./oauth", () => ({
+  getAccessToken: (...args: unknown[]) => getAccessToken(...args),
+  refreshAccessToken: (...args: unknown[]) => refreshAccessToken(...args),
+  login: (...args: unknown[]) => login(...args),
+}));
+
+import {
+  listProjects,
+  getProject,
+  listDocuments,
+  getDocument,
+  searchDocuments,
+  getMe,
+  ApiNoAccessError,
+  NO_ACCESS_EVENT,
+} from "./api";
 
 const mockFetch = vi.fn();
 
 beforeEach(() => {
   vi.stubGlobal("fetch", mockFetch);
-  Object.defineProperty(document, "cookie", {
-    writable: true,
-    configurable: true,
-    value: "ds_csrf=test-csrf-token",
-  });
+  getAccessToken.mockReset().mockResolvedValue("token-1");
+  refreshAccessToken.mockReset().mockResolvedValue("token-2");
+  login.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -22,13 +40,18 @@ function makeResponse(status: number, body: unknown) {
     status,
     ok: status >= 200 && status < 300,
     json: async () => body,
-    text: async () => String(body),
+    text: async () => JSON.stringify(body),
     statusText: "OK",
   };
 }
 
+function authHeader(call: unknown[]): string | null {
+  const init = call[1] as RequestInit;
+  return new Headers(init.headers).get("Authorization");
+}
+
 describe("listProjects", () => {
-  it("returns parsed projects on 200", async () => {
+  it("returns parsed projects on 200 and attaches the bearer token", async () => {
     const projects = [
       { id: "abc", name: "Test", description: "", visibility: "org", archived: false },
     ];
@@ -36,10 +59,8 @@ describe("listProjects", () => {
 
     const result = await listProjects();
     expect(result).toEqual(projects);
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/projects",
-      expect.objectContaining({ credentials: "include" })
-    );
+    expect(mockFetch).toHaveBeenCalledWith("/api/projects", expect.anything());
+    expect(authHeader(mockFetch.mock.calls[0])).toBe("Bearer token-1");
   });
 
   it("appends include_archived param when true", async () => {
@@ -51,7 +72,7 @@ describe("listProjects", () => {
     );
   });
 
-  it("throws on non-401 error", async () => {
+  it("throws on non-401/403 error", async () => {
     mockFetch.mockResolvedValueOnce({
       status: 500,
       ok: false,
@@ -95,6 +116,17 @@ describe("getDocument", () => {
   });
 });
 
+describe("getMe", () => {
+  it("fetches the caller's identity", async () => {
+    const me = { email: "a@example.com", tenant: "acme", groups: ["eng"] };
+    mockFetch.mockResolvedValueOnce(makeResponse(200, me));
+
+    const result = await getMe();
+    expect(result).toEqual(me);
+    expect(mockFetch).toHaveBeenCalledWith("/api/me", expect.anything());
+  });
+});
+
 describe("searchDocuments", () => {
   it("builds correct query string", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(200, []));
@@ -114,25 +146,49 @@ describe("searchDocuments", () => {
   });
 });
 
-describe("401 redirect", () => {
-  it("redirects to /auth/login on 401", async () => {
-    mockFetch.mockResolvedValueOnce({
-      status: 401,
-      ok: false,
-    });
+describe("401 handling", () => {
+  it("forces a refresh and retries exactly once on a single 401", async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeResponse(401, { error: "invalid_token" }))
+      .mockResolvedValueOnce(makeResponse(200, []));
 
-    let assignedHref = "";
-    Object.defineProperty(window, "location", {
-      configurable: true,
-      value: {
-        ...window.location,
-        set href(v: string) {
-          assignedHref = v;
-        },
-      },
-    });
+    const result = await listProjects();
+
+    expect(result).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(authHeader(mockFetch.mock.calls[0])).toBe("Bearer token-1");
+    expect(authHeader(mockFetch.mock.calls[1])).toBe("Bearer token-2");
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it("redirects to login when the retried request also gets a 401", async () => {
+    mockFetch
+      .mockResolvedValueOnce(makeResponse(401, { error: "invalid_token" }))
+      .mockResolvedValueOnce(makeResponse(401, { error: "invalid_token" }));
 
     await expect(listProjects()).rejects.toThrow("Unauthenticated");
-    expect(assignedHref).toBe("/auth/login");
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(login).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("403 no_access handling", () => {
+  it("throws ApiNoAccessError and dispatches the no-access event without redirecting to login", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(403, { error: "no_access", error_description: "authenticated but not authorized for any tenant" })
+    );
+
+    const listener = vi.fn();
+    window.addEventListener(NO_ACCESS_EVENT, listener);
+
+    await expect(listProjects()).rejects.toBeInstanceOf(ApiNoAccessError);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(login).not.toHaveBeenCalled();
+    expect(refreshAccessToken).not.toHaveBeenCalled();
+
+    window.removeEventListener(NO_ACCESS_EVENT, listener);
   });
 });

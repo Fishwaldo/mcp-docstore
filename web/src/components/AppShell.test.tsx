@@ -10,6 +10,13 @@ vi.mock("@/lib/api", () => ({
     { id: "p2", name: "Beta Project", description: "", visibility: "private", archived: false },
   ]),
   listDocuments: vi.fn().mockResolvedValue([]),
+  getMe: vi.fn().mockResolvedValue({ email: "user@example.com", tenant: "acme", groups: [] }),
+  NO_ACCESS_EVENT: "docstore:no-access",
+}));
+
+vi.mock("@/lib/oauth", () => ({
+  login: vi.fn().mockResolvedValue(undefined),
+  logout: vi.fn().mockResolvedValue(undefined),
 }));
 
 function wrapper({ children }: { children: React.ReactNode }) {

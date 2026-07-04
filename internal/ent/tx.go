@@ -16,14 +16,34 @@ type Tx struct {
 	Document *DocumentClient
 	// DocumentSnapshot is the client for interacting with the DocumentSnapshot builders.
 	DocumentSnapshot *DocumentSnapshotClient
+	// OAuthAuthCode is the client for interacting with the OAuthAuthCode builders.
+	OAuthAuthCode *OAuthAuthCodeClient
+	// OAuthAuthState is the client for interacting with the OAuthAuthState builders.
+	OAuthAuthState *OAuthAuthStateClient
+	// OAuthClient is the client for interacting with the OAuthClient builders.
+	OAuthClient *OAuthClientClient
+	// OAuthConsent is the client for interacting with the OAuthConsent builders.
+	OAuthConsent *OAuthConsentClient
+	// OAuthKey is the client for interacting with the OAuthKey builders.
+	OAuthKey *OAuthKeyClient
+	// OAuthProviderToken is the client for interacting with the OAuthProviderToken builders.
+	OAuthProviderToken *OAuthProviderTokenClient
+	// OAuthRefreshFamily is the client for interacting with the OAuthRefreshFamily builders.
+	OAuthRefreshFamily *OAuthRefreshFamilyClient
+	// OAuthRefreshToken is the client for interacting with the OAuthRefreshToken builders.
+	OAuthRefreshToken *OAuthRefreshTokenClient
+	// OAuthRevokedJTI is the client for interacting with the OAuthRevokedJTI builders.
+	OAuthRevokedJTI *OAuthRevokedJTIClient
+	// OAuthTokenMetadata is the client for interacting with the OAuthTokenMetadata builders.
+	OAuthTokenMetadata *OAuthTokenMetadataClient
+	// OAuthUserInfo is the client for interacting with the OAuthUserInfo builders.
+	OAuthUserInfo *OAuthUserInfoClient
 	// Project is the client for interacting with the Project builders.
 	Project *ProjectClient
 	// ProjectGroupShare is the client for interacting with the ProjectGroupShare builders.
 	ProjectGroupShare *ProjectGroupShareClient
 	// ProjectShare is the client for interacting with the ProjectShare builders.
 	ProjectShare *ProjectShareClient
-	// Session is the client for interacting with the Session builders.
-	Session *SessionClient
 	// Tenant is the client for interacting with the Tenant builders.
 	Tenant *TenantClient
 	// User is the client for interacting with the User builders.
@@ -161,10 +181,20 @@ func (tx *Tx) Client() *Client {
 func (tx *Tx) init() {
 	tx.Document = NewDocumentClient(tx.config)
 	tx.DocumentSnapshot = NewDocumentSnapshotClient(tx.config)
+	tx.OAuthAuthCode = NewOAuthAuthCodeClient(tx.config)
+	tx.OAuthAuthState = NewOAuthAuthStateClient(tx.config)
+	tx.OAuthClient = NewOAuthClientClient(tx.config)
+	tx.OAuthConsent = NewOAuthConsentClient(tx.config)
+	tx.OAuthKey = NewOAuthKeyClient(tx.config)
+	tx.OAuthProviderToken = NewOAuthProviderTokenClient(tx.config)
+	tx.OAuthRefreshFamily = NewOAuthRefreshFamilyClient(tx.config)
+	tx.OAuthRefreshToken = NewOAuthRefreshTokenClient(tx.config)
+	tx.OAuthRevokedJTI = NewOAuthRevokedJTIClient(tx.config)
+	tx.OAuthTokenMetadata = NewOAuthTokenMetadataClient(tx.config)
+	tx.OAuthUserInfo = NewOAuthUserInfoClient(tx.config)
 	tx.Project = NewProjectClient(tx.config)
 	tx.ProjectGroupShare = NewProjectGroupShareClient(tx.config)
 	tx.ProjectShare = NewProjectShareClient(tx.config)
-	tx.Session = NewSessionClient(tx.config)
 	tx.Tenant = NewTenantClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }

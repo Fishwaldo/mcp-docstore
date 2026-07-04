@@ -12,7 +12,7 @@ import (
 )
 
 func TestSPAHandlerServesIndex(t *testing.T) {
-	srv, _ := newTestServer(t, nil)
+	srv, _, _ := newTestServer(t)
 	h, err := srv.SPAHandler()
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
@@ -22,7 +22,7 @@ func TestSPAHandlerServesIndex(t *testing.T) {
 }
 
 func TestSPAHandlerFallsBackToIndexForClientRoutes(t *testing.T) {
-	srv, _ := newTestServer(t, nil)
+	srv, _, _ := newTestServer(t)
 	h, _ := srv.SPAHandler()
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/projects/123/some-client-route", nil))
@@ -31,7 +31,7 @@ func TestSPAHandlerFallsBackToIndexForClientRoutes(t *testing.T) {
 }
 
 func TestSPAHandlerSetsCSP(t *testing.T) {
-	srv, _ := newTestServer(t, nil)
+	srv, _, _ := newTestServer(t)
 	h, _ := srv.SPAHandler()
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))

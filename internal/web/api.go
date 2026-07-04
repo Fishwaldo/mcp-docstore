@@ -80,6 +80,13 @@ func (s *Server) registerAPI(api huma.API) {
 		Path:        "/search",
 		Summary:     "Full-text search across accessible documents",
 	}, s.handleSearch)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "me",
+		Method:      http.MethodGet,
+		Path:        "/me",
+		Summary:     "Get the caller's resolved identity",
+	}, s.handleMe)
 }
 
 // parseUUID parses a path-parameter UUID string and returns a 400 error on failure.
@@ -332,6 +339,40 @@ func (s *Server) handleDiff(ctx context.Context, in *diffInput) (*diffOutput, er
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
 	return &diffOutput{Body: diffBody{Diff: diff}}, nil
+}
+
+// --- me ---
+
+type meInput struct{}
+
+type meBody struct {
+	Email  string   `json:"email"`
+	Tenant string   `json:"tenant"`
+	Groups []string `json:"groups"`
+}
+
+type meOutput struct {
+	Body meBody
+}
+
+// handleMe reports the caller's own resolved identity: the email and tenant key recorded on
+// their user/tenant rows (the durable, provisioned values — not whatever the token's claims
+// said this request), plus the groups the token carried, which RequireBearer stamped onto the
+// identity as-is.
+func (s *Server) handleMe(ctx context.Context, _ *meInput) (*meOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	u, err := s.store.EntClient().User.Get(ctx, id.UserID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("load user: " + err.Error())
+	}
+	ten, err := s.store.EntClient().Tenant.Get(ctx, id.TenantID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("load tenant: " + err.Error())
+	}
+	return &meOutput{Body: meBody{Email: u.Email, Tenant: ten.Key, Groups: id.Groups}}, nil
 }
 
 // --- search ---
