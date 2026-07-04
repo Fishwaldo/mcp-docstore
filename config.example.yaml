@@ -56,6 +56,11 @@ oauth:
   trusted_proxy_count: 1      # number of trusted proxy hops to peel off when trust_proxy is true
   cookie_secure: true         # secure (HTTPS-only) consent cookie; default true. Set false ONLY for local http development
   sweep_interval: 1h          # interval to reap expired oauth store rows (auth codes, refresh tokens, revocations)
+  # allow_private_ip_redirects: set true ONLY when this server's public_url (and thus the SPA
+  # callback) or its OAuth clients live on an internal network whose hostnames resolve to
+  # RFC-1918/loopback addresses. Relaxes the authorization-time DNS-rebinding protection.
+  # Distinct from oidc.allow_private_ip, which only concerns the upstream IdP. Default false.
+  # allow_private_ip_redirects: false
 
 tenants:
   - key: acme

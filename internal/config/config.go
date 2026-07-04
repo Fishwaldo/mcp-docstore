@@ -106,6 +106,13 @@ type OAuth struct {
 	// revoked JTIs, cached provider tokens/userinfo, aged-out revoked refresh-token families)
 	// are purged from the OAuth store. Default 1h.
 	SweepInterval time.Duration `mapstructure:"sweep_interval"`
+	// AllowPrivateIPRedirects permits client redirect URIs whose hostname resolves to an
+	// RFC-1918/private address, relaxing the authorization-time DNS-rebinding protection.
+	// Needed when this server's own PublicURL (and thus the first-party SPA's callback) or
+	// its OAuth clients live on an internal network. Distinct from OIDC.AllowPrivateIP, which
+	// only concerns the upstream IdP: a public upstream with a private-IP PublicURL sets this
+	// but not that.
+	AllowPrivateIPRedirects bool `mapstructure:"allow_private_ip_redirects"`
 }
 
 // Logging configures the slog output. Level is debug|info|warn|error; Format is json|text.

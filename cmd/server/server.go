@@ -135,21 +135,22 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	}
 
 	asvc, err := oauthsrv.New(ctx, oauthsrv.Config{
-		PublicURL:             cfg.PublicURL,
-		UpstreamIssuer:        cfg.OIDC.Issuer,
-		UpstreamClientID:      cfg.OIDC.ClientID,
-		UpstreamClientSecret:  cfg.OIDC.ClientSecret,
-		UpstreamScopes:        cfg.OIDC.Scopes,
-		AllowPrivateIP:        cfg.OIDC.AllowPrivateIP,
-		RootCAs:               cfg.RootCAPool,
-		DiscoveryTimeout:      cfg.OIDC.DiscoveryTimeout,
-		AccessTokenTTL:        cfg.OAuth.AccessTokenTTL,
-		RefreshTokenTTL:       cfg.OAuth.RefreshTokenTTL,
-		RegistrationOpen:      cfg.OAuth.Registration == "open",
-		RegistrationAllowlist: cfg.OAuth.RegistrationAllowlist,
-		TrustProxy:            cfg.OAuth.TrustProxy,
-		TrustedProxyCount:     cfg.OAuth.TrustedProxyCount,
-		CookieSecure:          cookieSecure,
+		PublicURL:               cfg.PublicURL,
+		UpstreamIssuer:          cfg.OIDC.Issuer,
+		UpstreamClientID:        cfg.OIDC.ClientID,
+		UpstreamClientSecret:    cfg.OIDC.ClientSecret,
+		UpstreamScopes:          cfg.OIDC.Scopes,
+		AllowPrivateIP:          cfg.OIDC.AllowPrivateIP,
+		AllowPrivateIPRedirects: cfg.OAuth.AllowPrivateIPRedirects,
+		RootCAs:                 cfg.RootCAPool,
+		DiscoveryTimeout:        cfg.OIDC.DiscoveryTimeout,
+		AccessTokenTTL:          cfg.OAuth.AccessTokenTTL,
+		RefreshTokenTTL:         cfg.OAuth.RefreshTokenTTL,
+		RegistrationOpen:        cfg.OAuth.Registration == "open",
+		RegistrationAllowlist:   cfg.OAuth.RegistrationAllowlist,
+		TrustProxy:              cfg.OAuth.TrustProxy,
+		TrustedProxyCount:       cfg.OAuth.TrustedProxyCount,
+		CookieSecure:            cookieSecure,
 	}, ost, km, entc, logger)
 	if err != nil {
 		return err

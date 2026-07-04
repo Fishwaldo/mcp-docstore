@@ -39,16 +39,17 @@ const (
 // Config carries everything the authorization server needs, mapped by the caller from the
 // application config (cmd/server does this in one place).
 type Config struct {
-	PublicURL            string // AS issuer; also the base for {PublicURL}/mcp resource identifier
-	UpstreamIssuer       string // upstream OIDC IdP (e.g. Okta org URL)
-	UpstreamClientID     string
-	UpstreamClientSecret string
-	UpstreamScopes       []string       // default [openid profile email groups]
-	AllowPrivateIP       bool           // permit upstream issuers resolving to RFC-1918 addrs (SSRF opt-out)
-	RootCAs              *x509.CertPool // nil = system pool; for internal-CA IdPs
-	DiscoveryTimeout     time.Duration
-	AccessTokenTTL       time.Duration
-	RefreshTokenTTL      time.Duration
+	PublicURL               string // AS issuer; also the base for {PublicURL}/mcp resource identifier
+	UpstreamIssuer          string // upstream OIDC IdP (e.g. Okta org URL)
+	UpstreamClientID        string
+	UpstreamClientSecret    string
+	UpstreamScopes          []string       // default [openid profile email groups]
+	AllowPrivateIP          bool           // permit upstream issuers resolving to RFC-1918 addrs (SSRF opt-out)
+	AllowPrivateIPRedirects bool           // permit client redirect URIs resolving to RFC-1918 addrs (DNS-rebinding opt-out)
+	RootCAs                 *x509.CertPool // nil = system pool; for internal-CA IdPs
+	DiscoveryTimeout        time.Duration
+	AccessTokenTTL          time.Duration
+	RefreshTokenTTL         time.Duration
 
 	RegistrationOpen      bool     // true: open public DCR; false: allowlist below
 	RegistrationAllowlist []string // exact-match HTTPS redirect URIs admitted to DCR when !RegistrationOpen
@@ -83,6 +84,11 @@ func New(ctx context.Context, cfg Config, st storage.Combined, km *KeyMaterial, 
 		logger.Warn("upstream IdP SSRF protection relaxed",
 			"reason", "config.oauth.upstream.allow_private_ip is true",
 			"risk", "OIDC discovery and token requests may resolve to RFC-1918 or loopback addresses")
+	}
+	if cfg.AllowPrivateIPRedirects {
+		logger.Warn("redirect URI SSRF protection relaxed",
+			"reason", "config.oauth.allow_private_ip_redirects is true",
+			"risk", "client redirect URIs may resolve to RFC-1918 or loopback addresses (DNS-rebinding protection off)")
 	}
 
 	provider, err := dex.NewProvider(&dex.Config{
@@ -119,6 +125,7 @@ func New(ctx context.Context, cfg Config, st storage.Combined, km *KeyMaterial, 
 		ResourceIdentifier:                    cfg.PublicURL + "/mcp",
 		SupportedScopes:                       []string{"openid", "profile", "email", "groups", "offline_access"},
 		AllowPublicClientRegistration:         cfg.RegistrationOpen,
+		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirects,
 		TrustedPublicRegistrationRedirectURIs: trustedRedirectURIs,
 		// RFC 8252 §7.3: native apps (Claude Code's ephemeral loopback callback among them)
 		// register redirect URIs of the form http://127.0.0.1:PORT/... or

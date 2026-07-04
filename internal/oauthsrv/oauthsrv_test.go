@@ -342,3 +342,34 @@ func TestNew_AllowPrivateIPTogglesWarnLog(t *testing.T) {
 		require.False(t, rec.hasMessageContaining(slog.LevelWarn, "SSRF protection relaxed"))
 	})
 }
+
+func TestNew_AllowPrivateIPRedirectsTogglesWarnLog(t *testing.T) {
+	issuerURL, rootCAs := startUpstreamOIDC(t)
+	entc := newTestEntClient(t)
+	km, err := LoadOrCreateKeyMaterial(context.Background(), entc)
+	require.NoError(t, err)
+
+	t.Run("true logs the redirect-URI relaxed warning", func(t *testing.T) {
+		st := newTestCombinedStore(t, entc)
+		rec := &recordingHandler{}
+		logger := slog.New(rec)
+		cfg := baseConfig(issuerURL, rootCAs, true) // AllowPrivateIP true so RootCAs is honored and build succeeds
+		cfg.AllowPrivateIPRedirects = true
+
+		_, err := New(context.Background(), cfg, st, km, entc, logger)
+		require.NoError(t, err)
+		require.True(t, rec.hasMessageContaining(slog.LevelWarn, "redirect URI SSRF protection relaxed"))
+	})
+
+	t.Run("false does not log the redirect-URI warning", func(t *testing.T) {
+		st := newTestCombinedStore(t, entc)
+		rec := &recordingHandler{}
+		logger := slog.New(rec)
+		cfg := baseConfig(issuerURL, rootCAs, true)
+		cfg.AllowPrivateIPRedirects = false
+
+		_, err := New(context.Background(), cfg, st, km, entc, logger)
+		require.NoError(t, err)
+		require.False(t, rec.hasMessageContaining(slog.LevelWarn, "redirect URI SSRF protection relaxed"))
+	})
+}

@@ -598,6 +598,31 @@ oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secre
 	require.True(t, cfg.OIDC.AllowPrivateIP)
 }
 
+func TestOAuthAllowPrivateIPRedirectsDefaultsFalse(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.False(t, cfg.OAuth.AllowPrivateIPRedirects)
+}
+
+func TestOAuthAllowPrivateIPRedirectsTrue(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+oauth: {allow_private_ip_redirects: true}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.True(t, cfg.OAuth.AllowPrivateIPRedirects)
+}
+
 func TestLoggingDefaults(t *testing.T) {
 	path := writeTemp(t, `
 public_url: "https://docs.example.com"
