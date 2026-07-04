@@ -1,7 +1,30 @@
 // API client for DocStore web UI.
-// All requests use credentials:"include" (session cookie).
-// Non-GET requests include the CSRF double-submit header from the ds_csrf cookie.
-// A 401 response triggers a redirect to /auth/login.
+// Every request carries an Authorization: Bearer header from oauth.getAccessToken(). A 401
+// forces one token refresh and retries the request exactly once; a second 401 starts a fresh
+// login. A 403 with {"error":"no_access"} means the token is valid but its owner isn't
+// provisioned for any tenant — that must NOT redirect to login (the AS would just hand back a
+// token for the same unprovisioned account, looping forever), so it surfaces as a distinct
+// ApiNoAccessError the UI renders as a no-access screen.
+
+import { getAccessToken, refreshAccessToken, login } from "./oauth";
+
+// NO_ACCESS_EVENT is dispatched on window whenever a request hits the no_access case, so a
+// top-level component can show the no-access screen without every call site wiring its own
+// handling of ApiNoAccessError.
+export const NO_ACCESS_EVENT = "docstore:no-access";
+
+export class ApiNoAccessError extends Error {
+  constructor() {
+    super("no_access");
+    this.name = "ApiNoAccessError";
+  }
+}
+
+export interface MeDTO {
+  email: string;
+  tenant: string;
+  groups: string[];
+}
 
 export interface ProjectDTO {
   id: string;
@@ -59,39 +82,46 @@ export interface DiffDTO {
   diff: string;
 }
 
-function getCSRFToken(): string {
-  const match = document.cookie
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith("ds_csrf="));
-  return match ? match.slice("ds_csrf=".length) : "";
+async function doFetch(path: string, method: string, init: RequestInit, token: string): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("Accept", "application/json");
+  headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`/api${path}`, { ...init, method, headers });
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
-  const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
-  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
-    const token = getCSRFToken();
-    if (token) {
-      headers.set("X-CSRF-Token", token);
+
+  let token = await getAccessToken();
+  let resp = await doFetch(path, method, init, token);
+
+  if (resp.status === 401) {
+    token = await refreshAccessToken();
+    resp = await doFetch(path, method, init, token);
+    if (resp.status === 401) {
+      await login(window.location.pathname + window.location.search);
+      throw new Error("Unauthenticated");
     }
   }
-  const resp = await fetch(`/api${path}`, {
-    ...init,
-    method,
-    credentials: "include",
-    headers,
-  });
-  if (resp.status === 401) {
-    window.location.href = "/auth/login";
-    throw new Error("Unauthenticated");
+
+  if (resp.status === 403) {
+    const body = (await resp.json().catch(() => null)) as { error?: string } | null;
+    if (body?.error === "no_access") {
+      window.dispatchEvent(new CustomEvent(NO_ACCESS_EVENT));
+      throw new ApiNoAccessError();
+    }
+    throw new Error(`API error 403: ${JSON.stringify(body)}`);
   }
+
   if (!resp.ok) {
     const text = await resp.text().catch(() => resp.statusText);
     throw new Error(`API error ${resp.status}: ${text}`);
   }
   return resp.json() as Promise<T>;
+}
+
+export async function getMe(): Promise<MeDTO> {
+  return apiFetch<MeDTO>("/me");
 }
 
 export async function listProjects(includeArchived = false): Promise<ProjectDTO[]> {
