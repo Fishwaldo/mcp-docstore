@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DocumentView from "@/routes/DocumentView";
@@ -71,6 +71,18 @@ describe("DocumentView", () => {
     await waitFor(() => {
       expect(screen.getByText("3")).toBeInTheDocument();
     });
+  });
+
+  it("collapses and expands the overview via its toggle", async () => {
+    render(<DocumentView />, { wrapper });
+    await waitFor(() => {
+      expect(screen.getByText("A test overview")).toBeInTheDocument();
+    });
+    const toggle = screen.getByRole("button", { name: /overview/i });
+    fireEvent.click(toggle);
+    expect(screen.queryByText("A test overview")).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.getByText("A test overview")).toBeInTheDocument();
   });
 
   it("renders diff links for snapshots", async () => {
