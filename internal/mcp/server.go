@@ -21,6 +21,7 @@ type registrar struct {
 	svc         *app.Service
 	identityFor identityFunc
 	log         *slog.Logger
+	webBaseURL  string
 }
 
 func (r *registrar) ident(req *sdk.CallToolRequest) (store.Identity, error) {
@@ -62,8 +63,11 @@ Editing safely:
 
 // NewMCPServer builds the MCP server with all tools registered. version is advertised in
 // the initialize handshake (InitializeResult.ServerInfo.Version); callers pass the build
-// version, defaulting it to "dev" for unstamped local builds.
-func NewMCPServer(svc *app.Service, identityFor identityFunc, log *slog.Logger, icons []sdk.Icon, version string) *sdk.Server {
+// version, defaulting it to "dev" for unstamped local builds. webBaseURL, when non-empty,
+// is prefixed onto document tool outputs' WebURL field so an agent can point a human at
+// the browser view of a doc; pass "" to omit the hint entirely (e.g. when the web UI is
+// disabled).
+func NewMCPServer(svc *app.Service, identityFor identityFunc, log *slog.Logger, icons []sdk.Icon, version string, webBaseURL string) *sdk.Server {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -75,7 +79,7 @@ func NewMCPServer(svc *app.Service, identityFor identityFunc, log *slog.Logger, 
 		&sdk.ServerOptions{Instructions: serverInstructions, Logger: log},
 	)
 	srv.AddReceivingMiddleware(loggingMiddleware(log))
-	r := &registrar{svc: svc, identityFor: identityFor, log: log}
+	r := &registrar{svc: svc, identityFor: identityFor, log: log, webBaseURL: webBaseURL}
 	r.registerProjectTools(srv)
 	r.registerDocumentTools(srv)
 	r.registerDocumentMoreTools(srv)

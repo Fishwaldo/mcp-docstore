@@ -57,7 +57,7 @@ func (r *registrar) registerDocumentTools(srv *sdk.Server) {
 			}
 			out := listDocumentsOut{Documents: make([]documentSummaryOut, 0, len(ds))}
 			for _, d := range ds {
-				out.Documents = append(out.Documents, toDocumentSummary(d))
+				out.Documents = append(out.Documents, toDocumentSummary(d, r.webBaseURL))
 			}
 			return nil, out, nil
 		})
@@ -78,7 +78,7 @@ func (r *registrar) registerDocumentTools(srv *sdk.Server) {
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
-			return nil, toDocumentOut(d), nil
+			return nil, toDocumentOut(d, r.webBaseURL), nil
 		})
 
 	sdk.AddTool(srv, &sdk.Tool{Name: "get_document", Description: "Get a document by id, including its full body and current version.", Annotations: readOnlyAnno()},
@@ -95,7 +95,7 @@ func (r *registrar) registerDocumentTools(srv *sdk.Server) {
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
-			return nil, toDocumentOut(d), nil
+			return nil, toDocumentOut(d, r.webBaseURL), nil
 		})
 
 	sdk.AddTool(srv, &sdk.Tool{Name: "edit_document", Description: "Edit a document. mode=replace updates overview/body/tags wholesale; mode=section replaces one markdown section by heading. base_version must match the current version or the edit is rejected.", Annotations: mutatingAnno(),
@@ -127,6 +127,6 @@ func (r *registrar) registerDocumentTools(srv *sdk.Server) {
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
-			return nil, toDocumentOut(d), nil
+			return nil, toDocumentOut(d, r.webBaseURL), nil
 		})
 }

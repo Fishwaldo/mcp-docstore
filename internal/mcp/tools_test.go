@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Fishwaldo/mcp-docstore/internal/app"
+	"github.com/Fishwaldo/mcp-docstore/internal/ent"
 	"github.com/Fishwaldo/mcp-docstore/internal/index"
 	"github.com/Fishwaldo/mcp-docstore/internal/search"
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
@@ -561,7 +562,7 @@ func startServer(t *testing.T, svc *app.Service, id store.Identity) *sdk.ClientS
 func startServerWithClient(t *testing.T, svc *app.Service, id store.Identity, copts *sdk.ClientOptions) *sdk.ClientSession {
 	t.Helper()
 	ctx := context.Background()
-	srv := NewMCPServer(svc, func(*sdk.CallToolRequest) (store.Identity, bool) { return id, true }, nil, nil, "test")
+	srv := NewMCPServer(svc, func(*sdk.CallToolRequest) (store.Identity, bool) { return id, true }, nil, nil, "test", "")
 	ct, st := sdk.NewInMemoryTransports()
 	_, err := srv.Connect(ctx, st, nil)
 	require.NoError(t, err)
@@ -685,4 +686,12 @@ func TestEditDocumentInvalidComboIsError(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError)
+}
+
+func TestToDocumentOutWebURL(t *testing.T) {
+	d := &ent.Document{ID: uuid.MustParse("11111111-1111-1111-1111-111111111111"), Title: "T"}
+	require.Equal(t, "https://docs.example.com/documents/11111111-1111-1111-1111-111111111111", toDocumentOut(d, "https://docs.example.com").WebURL)
+	require.Empty(t, toDocumentOut(d, "").WebURL)
+	require.Equal(t, "https://docs.example.com/documents/11111111-1111-1111-1111-111111111111", toDocumentSummary(d, "https://docs.example.com").WebURL)
+	require.Empty(t, toDocumentSummary(d, "").WebURL)
 }

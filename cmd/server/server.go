@@ -168,7 +168,12 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 		{Source: cfg.PublicURL + "/icon-512.png", MIMEType: "image/png", Sizes: []string{"512x512"}},
 		{Source: cfg.PublicURL + "/icon-96.png", MIMEType: "image/png", Sizes: []string{"96x96"}},
 	}
-	mcpServer := imcp.NewMCPServer(svc, auth.IdentityFromRequest, logger, icons, resolveVersion())
+	// web_url hints point at the SPA's document route; only meaningful when the web UI is served.
+	webBaseURL := ""
+	if cfg.Web.Enabled {
+		webBaseURL = cfg.PublicURL
+	}
+	mcpServer := imcp.NewMCPServer(svc, auth.IdentityFromRequest, logger, icons, resolveVersion(), webBaseURL)
 
 	bearer := mcpauth.RequireBearerToken(
 		auth.NewResourceVerifier(verifier, resolver, st, logger, cfg.Logging.ClientIPHeader),

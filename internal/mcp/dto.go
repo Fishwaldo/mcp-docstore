@@ -39,9 +39,10 @@ type documentOut struct {
 	Version       int      `json:"version" jsonschema:"current version; pass as base_version on the next edit so a stale write is rejected"`
 	ChangeComment string   `json:"change_comment" jsonschema:"comment recorded with the change that produced this version"`
 	UpdatedAt     string   `json:"updated_at" jsonschema:"last-modified time (RFC 3339)"`
+	WebURL        string   `json:"web_url,omitempty" jsonschema:"URL to view this document in the web UI (present only when the web UI is enabled)"`
 }
 
-func toDocumentOut(d *ent.Document) documentOut {
+func toDocumentOut(d *ent.Document, webBaseURL string) documentOut {
 	out := documentOut{
 		ID: d.ID.String(), Title: d.Title, Overview: d.Overview, Body: d.Body,
 		Tags: d.Tags, Version: d.Version, ChangeComment: d.ChangeComment,
@@ -49,6 +50,9 @@ func toDocumentOut(d *ent.Document) documentOut {
 	}
 	if d.Edges.Project != nil {
 		out.ProjectID = d.Edges.Project.ID.String()
+	}
+	if webBaseURL != "" {
+		out.WebURL = webBaseURL + "/documents/" + d.ID.String()
 	}
 	return out
 }
@@ -60,10 +64,15 @@ type documentSummaryOut struct {
 	Tags      []string `json:"tags" jsonschema:"tags"`
 	Version   int      `json:"version" jsonschema:"current version; pass as base_version when editing"`
 	UpdatedAt string   `json:"updated_at" jsonschema:"last-modified time (RFC 3339)"`
+	WebURL    string   `json:"web_url,omitempty" jsonschema:"URL to view this document in the web UI (present only when the web UI is enabled)"`
 }
 
-func toDocumentSummary(d *ent.Document) documentSummaryOut {
-	return documentSummaryOut{ID: d.ID.String(), Title: d.Title, Overview: d.Overview, Tags: d.Tags, Version: d.Version, UpdatedAt: d.UpdatedAt.Format(time.RFC3339)}
+func toDocumentSummary(d *ent.Document, webBaseURL string) documentSummaryOut {
+	out := documentSummaryOut{ID: d.ID.String(), Title: d.Title, Overview: d.Overview, Tags: d.Tags, Version: d.Version, UpdatedAt: d.UpdatedAt.Format(time.RFC3339)}
+	if webBaseURL != "" {
+		out.WebURL = webBaseURL + "/documents/" + d.ID.String()
+	}
+	return out
 }
 
 type snapshotMetaOut struct {
@@ -104,6 +113,7 @@ type searchHitOut struct {
 	Overview   string  `json:"overview" jsonschema:"document overview"`
 	Score      float64 `json:"score" jsonschema:"relevance score; higher is a better match, comparable only within this result set"`
 	Snippet    string  `json:"snippet" jsonschema:"excerpt of the body around the match"`
+	WebURL     string  `json:"web_url,omitempty" jsonschema:"URL to view this document in the web UI (present only when the web UI is enabled)"`
 }
 
 type shareUserOut struct {

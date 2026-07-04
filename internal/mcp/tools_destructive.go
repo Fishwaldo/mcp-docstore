@@ -123,6 +123,6 @@ func (r *registrar) registerDestructiveTools(srv *sdk.Server) {
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
-			return nil, toDocumentOut(d), nil
+			return nil, toDocumentOut(d, r.webBaseURL), nil
 		})
 }

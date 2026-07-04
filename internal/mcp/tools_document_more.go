@@ -61,7 +61,7 @@ func (r *registrar) registerDocumentMoreTools(srv *sdk.Server) {
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
-			return nil, toDocumentOut(d), nil
+			return nil, toDocumentOut(d, r.webBaseURL), nil
 		})
 
 	sdk.AddTool(srv, &sdk.Tool{Name: "delete_section", Description: "Delete a markdown section by heading. base_version must match the current version or the edit is rejected.", Annotations: mutatingAnno()},
@@ -78,6 +78,6 @@ func (r *registrar) registerDocumentMoreTools(srv *sdk.Server) {
 			if err != nil {
 				return nil, documentOut{}, toolErr(err)
 			}
-			return nil, toDocumentOut(d), nil
+			return nil, toDocumentOut(d, r.webBaseURL), nil
 		})
 }

@@ -43,14 +43,18 @@ func (r *registrar) registerSearchTool(srv *sdk.Server) {
 			}
 			out := searchDocumentsOut{Results: make([]searchHitOut, 0, len(hits))}
 			for _, h := range hits {
-				out.Results = append(out.Results, searchHitOut{
+				hit := searchHitOut{
 					DocumentID: h.DocumentID,
 					ProjectID:  h.ProjectID,
 					Title:      h.Title,
 					Overview:   h.Overview,
 					Score:      h.Score,
 					Snippet:    h.Snippet,
-				})
+				}
+				if r.webBaseURL != "" {
+					hit.WebURL = r.webBaseURL + "/documents/" + h.DocumentID
+				}
+				out.Results = append(out.Results, hit)
 			}
 			return nil, out, nil
 		})
