@@ -19,7 +19,8 @@ export default function AuthGate() {
 
   if (!authenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background">
+        <img src="/icon-96.png" alt="DocStore" className="h-12 w-12 rounded" />
         <p className="text-muted-foreground">Redirecting to sign in…</p>
       </div>
     );

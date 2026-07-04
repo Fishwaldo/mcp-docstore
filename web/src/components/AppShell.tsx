@@ -67,9 +67,12 @@ export default function AppShell() {
       >
         {/* Sidebar header */}
         <div className="flex h-12 items-center justify-between px-3 border-b border-border shrink-0">
-          {!collapsed && (
-            <span className="text-sm font-semibold text-foreground truncate">DocStore</span>
-          )}
+          <div className="flex items-center gap-2 min-w-0">
+            <img src="/icon-96.png" alt="DocStore" className="h-6 w-6 rounded shrink-0" />
+            {!collapsed && (
+              <span className="text-sm font-semibold text-foreground truncate">DocStore</span>
+            )}
+          </div>
           <button
             onClick={() => setCollapsed((c) => !c)}
             className="ml-auto flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent text-muted-foreground"

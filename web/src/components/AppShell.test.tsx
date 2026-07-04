@@ -47,6 +47,11 @@ describe("AppShell", () => {
     expect(screen.getByText("DocStore")).toBeInTheDocument();
   });
 
+  it("renders the DocStore logo", () => {
+    render(<AppShell />, { wrapper });
+    expect(screen.getByAltText("DocStore")).toBeInTheDocument();
+  });
+
   it("toggles dark mode and persists the choice", async () => {
     localStorage.clear();
     document.documentElement.classList.remove("dark");
