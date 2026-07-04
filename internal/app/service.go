@@ -235,10 +235,6 @@ func (s *Service) GetProject(ctx context.Context, id store.Identity, projectID u
 	return s.store.GetProject(ctx, id, projectID)
 }
 
-func (s *Service) ListProjects(ctx context.Context, id store.Identity, includeArchived bool) ([]*ent.Project, error) {
-	return s.store.ListProjects(ctx, id, includeArchived)
-}
-
 func (s *Service) ListProjectsWithAccess(ctx context.Context, id store.Identity, includeArchived bool) ([]store.ProjectWithAccess, error) {
 	return s.store.ListProjectsWithAccess(ctx, id, includeArchived)
 }
