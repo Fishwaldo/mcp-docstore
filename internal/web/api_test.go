@@ -426,3 +426,35 @@ func TestEditDocumentUnknownIDNotFound(t *testing.T) {
 	})
 	require.Equal(t, 404, rec.Code, rec.Body.String())
 }
+
+func TestCreateDocument(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	projectID, _ := seedProjectAndDoc(t, srv, id)
+
+	rec := doJSON(t, srv, id, http.MethodPost, "/documents", map[string]any{
+		"project_id": projectID,
+		"title":      "Created via API",
+		"overview":   "short abstract",
+		"body":       "# Created\n\ncontent\n",
+		"tags":       []string{"api"},
+		"comment":    "create via api",
+	})
+	require.Equal(t, 201, rec.Code, rec.Body.String())
+
+	var dto DocumentDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, "Created via API", dto.Title)
+	require.Equal(t, 1, dto.Version)
+	require.Contains(t, dto.BodyHTML, "content")
+	require.NotEmpty(t, dto.ID)
+}
+
+func TestCreateDocumentUnknownProjectNotFound(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+
+	rec := doJSON(t, srv, id, http.MethodPost, "/documents", map[string]any{
+		"project_id": "00000000-0000-0000-0000-000000000001",
+		"title":      "Orphan",
+	})
+	require.Equal(t, 404, rec.Code, rec.Body.String())
+}

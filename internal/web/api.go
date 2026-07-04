@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Fishwaldo/mcp-docstore/internal/search"
+	"github.com/Fishwaldo/mcp-docstore/internal/store"
 )
 
 // registerAPI mounts the 9 read-only JSON operations on the Huma API instance.
@@ -87,6 +88,14 @@ func (s *Server) registerAPI(api huma.API) {
 		Path:        "/documents/{id}",
 		Summary:     "Edit a document (full replace of provided fields, optimistic concurrency)",
 	}, s.handleEditDocument)
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-document",
+		Method:        http.MethodPost,
+		Path:          "/documents",
+		Summary:       "Create a document in a project",
+		DefaultStatus: http.StatusCreated,
+	}, s.handleCreateDocument)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "me",
@@ -461,4 +470,47 @@ func (s *Server) handleEditDocument(ctx context.Context, in *editDocumentInput) 
 		return nil, huma.Error500InternalServerError("render failed: " + err.Error())
 	}
 	return &editDocumentOutput{Body: toDocumentDTO(doc, html)}, nil
+}
+
+// --- create-document ---
+
+type createDocumentInput struct {
+	Body struct {
+		ProjectID string   `json:"project_id" doc:"Project the document belongs to"`
+		Title     string   `json:"title" minLength:"1"`
+		Overview  string   `json:"overview,omitempty"`
+		BodyMD    string   `json:"body,omitempty"`
+		Tags      []string `json:"tags,omitempty"`
+		Comment   string   `json:"comment,omitempty"`
+	}
+}
+
+type createDocumentOutput struct {
+	Body DocumentDTO
+}
+
+func (s *Server) handleCreateDocument(ctx context.Context, in *createDocumentInput) (*createDocumentOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.Body.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := s.svc.CreateDocument(ctx, id, pid, store.NewDocument{
+		Title:    in.Body.Title,
+		Overview: in.Body.Overview,
+		Body:     in.Body.BodyMD,
+		Tags:     in.Body.Tags,
+		Comment:  in.Body.Comment,
+	})
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	html, err := renderMarkdown(doc.Body)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("render failed: " + err.Error())
+	}
+	return &createDocumentOutput{Body: toDocumentDTO(doc, html)}, nil
 }
