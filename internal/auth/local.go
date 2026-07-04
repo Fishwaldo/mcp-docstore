@@ -24,9 +24,9 @@ type RevocationChecker interface {
 }
 
 // LocalVerifier validates DocStore-issued access tokens (RFC 9068 JWTs) against a static,
-// in-process public key set. Unlike OIDCVerifier it does no JWKS HTTP fetch and has no
-// dependency on the server's own public URL being reachable: the keys are the AS's own
-// signing key material, loaded once at boot.
+// in-process public key set: it does no JWKS HTTP fetch and has no dependency on the
+// server's own public URL being reachable — the keys are the AS's own signing key material,
+// loaded once at boot.
 type LocalVerifier struct {
 	verifier  *oidc.IDTokenVerifier
 	audiences []string
@@ -46,8 +46,7 @@ type LocalVerifier struct {
 // want, audienceMatches would accept any token carrying an empty "aud" entry, so a miswired
 // empty audience set must fail loudly at boot rather than silently widen what this verifier
 // accepts on the request hot path. Construction is boot-time, so a panic here is a startup
-// failure, never a per-request one — mirroring NewOIDCVerifier, which returns an error for
-// the same condition.
+// failure, never a per-request one.
 func NewLocalVerifier(issuer string, audiences []string, keys []crypto.PublicKey, rc RevocationChecker) *LocalVerifier {
 	normalized := normalizeAudiences(audiences)
 	if len(normalized) == 0 {
@@ -82,9 +81,8 @@ type localClaims struct {
 
 // Verify validates rawToken's signature, issuer, expiry, and audience, then enforces
 // revocation: a token whose jti is on the denylist, or whose family_id names a revoked
-// refresh-token family, is rejected. Claims are mapped into *Claims exactly as OIDCVerifier
-// does, so downstream consumers (resource.go, ResolveIdentity) don't need to know which
-// verifier produced them.
+// refresh-token family, is rejected. Claims are mapped into *Claims so downstream consumers
+// (resource.go, ResolveIdentity) don't need to know which verifier produced them.
 func (v *LocalVerifier) Verify(ctx context.Context, rawToken string) (*Claims, error) {
 	idToken, err := v.verifier.Verify(ctx, rawToken)
 	if err != nil {

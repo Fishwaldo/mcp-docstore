@@ -5,8 +5,8 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
-	"strconv"
 	"testing"
 	"time"
 
@@ -18,6 +18,19 @@ import (
 	"github.com/Fishwaldo/mcp-docstore/internal/store"
 	"github.com/Fishwaldo/mcp-docstore/internal/tenant"
 )
+
+// stubVerifier is a Verifier test double: it maps raw token strings to pre-set claims (an
+// unknown token is "invalid"). NewResourceVerifier's job under test is identity resolution
+// and logging, not token parsing, so a stub keeps the test focused on that wrapper.
+type stubVerifier struct{ byToken map[string]*Claims }
+
+func (s stubVerifier) Verify(_ context.Context, raw string) (*Claims, error) {
+	c, ok := s.byToken[raw]
+	if !ok {
+		return nil, errors.New("invalid token")
+	}
+	return c, nil
+}
 
 func newAuthStore(t *testing.T) *store.Store {
 	t.Helper()
@@ -32,21 +45,20 @@ func newAuthStore(t *testing.T) *store.Store {
 
 func TestResourceVerifierResolvesIdentity(t *testing.T) {
 	ctx := context.Background()
-	issuer, sign := startOIDC(t)
-	ov, err := NewOIDCVerifier(ctx, issuer, "", "mcp-docstore", "email", "groups", "off", 15*time.Second)
-	require.NoError(t, err)
+	exp := time.Now().Add(time.Hour)
+	stub := stubVerifier{byToken: map[string]*Claims{
+		"onboarded": {Subject: "s1", Email: "alice@acme.com", Groups: []string{"eng"}, Expiry: exp},
+		"unknown":   {Subject: "s2", Email: "x@nope.com", Expiry: exp},
+	}}
 	res, err := tenant.NewResolver([]config.TenantSpec{
 		{Key: "acme", Match: config.TenantMatch{Domains: []string{"acme.com"}}, Admins: []string{"alice@acme.com"}},
 	})
 	require.NoError(t, err)
 	st := newAuthStore(t)
 	logger, buf := logtest.New()
-	verifier := NewResourceVerifier(ov, res, st, logger, "")
+	verifier := NewResourceVerifier(stub, res, st, logger, "")
 
-	exp := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
-	tok := sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s1","exp":` + exp +
-		`,"email":"alice@acme.com","groups":["eng"]}`)
-	ti, err := verifier(ctx, tok, &http.Request{RemoteAddr: "203.0.113.5:5000"})
+	ti, err := verifier(ctx, "onboarded", &http.Request{RemoteAddr: "203.0.113.5:5000"})
 	require.NoError(t, err)
 	require.NotEmpty(t, ti.UserID)
 	require.False(t, ti.Expiration.IsZero())
@@ -62,9 +74,8 @@ func TestResourceVerifierResolvesIdentity(t *testing.T) {
 	require.Equal(t, "DEBUG", okRec["level"])
 	require.Equal(t, "203.0.113.5", okRec["client_ip"])
 
-	// Unknown domain -> ErrInvalidToken + a WARN auth-failed event.
-	tok2 := sign(`{"iss":"` + issuer + `","aud":"mcp-docstore","sub":"s2","exp":` + exp + `,"email":"x@nope.com"}`)
-	_, err = verifier(ctx, tok2, &http.Request{RemoteAddr: "203.0.113.6:6000"})
+	// A valid token whose email resolves to no tenant -> ErrInvalidToken + a WARN auth-failed event.
+	_, err = verifier(ctx, "unknown", &http.Request{RemoteAddr: "203.0.113.6:6000"})
 	require.ErrorIs(t, err, mcpauth.ErrInvalidToken)
 
 	failRec := logtest.Find(buf, "auth failed")
