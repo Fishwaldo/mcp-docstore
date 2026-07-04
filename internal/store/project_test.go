@@ -61,10 +61,10 @@ func TestListProjectsShowsAccessibleOnly(t *testing.T) {
 	orgP, err := s.CreateProject(ctx, owner, "Shared", "", "org")
 	require.NoError(t, err)
 
-	list, err := s.ListProjects(ctx, bob, false)
+	list, err := s.ListProjectsWithAccess(ctx, bob, false)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	require.Equal(t, orgP.ID, list[0].ID)
+	require.Equal(t, orgP.ID, list[0].Project.ID)
 }
 
 func TestListProjectsWithAccessReportsLevel(t *testing.T) {
@@ -126,13 +126,13 @@ func TestListProjectsExcludesArchivedByDefault(t *testing.T) {
 	require.NoError(t, s.ArchiveProject(ctx, owner, arch.ID))
 
 	// Default: archived omitted.
-	list, err := s.ListProjects(ctx, owner, false)
+	list, err := s.ListProjectsWithAccess(ctx, owner, false)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	require.Equal(t, active.ID, list[0].ID)
+	require.Equal(t, active.ID, list[0].Project.ID)
 
 	// include_archived=true: both returned.
-	all, err := s.ListProjects(ctx, owner, true)
+	all, err := s.ListProjectsWithAccess(ctx, owner, true)
 	require.NoError(t, err)
 	require.Len(t, all, 2)
 
@@ -143,7 +143,7 @@ func TestListProjectsExcludesArchivedByDefault(t *testing.T) {
 
 	// Unarchive restores it to the default listing.
 	require.NoError(t, s.UnarchiveProject(ctx, owner, arch.ID))
-	list2, err := s.ListProjects(ctx, owner, false)
+	list2, err := s.ListProjectsWithAccess(ctx, owner, false)
 	require.NoError(t, err)
 	require.Len(t, list2, 2)
 }

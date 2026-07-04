@@ -101,42 +101,15 @@ func (s *Store) GetProject(ctx context.Context, id Identity, projectID uuid.UUID
 	return p, err
 }
 
-// ListProjects returns every project in the tenant that the caller can at least read.
-// Archived projects are omitted unless includeArchived is true.
-func (s *Store) ListProjects(ctx context.Context, id Identity, includeArchived bool) ([]*ent.Project, error) {
-	all, err := s.client.Project.Query().
-		Where(project.HasTenantWith(tenant.IDEQ(id.TenantID))).
-		WithOwner().
-		WithShares(func(q *ent.ProjectShareQuery) { q.WithUser() }).
-		WithGroupShares().
-		WithTenant().
-		All(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []*ent.Project
-	for _, p := range all {
-		if p.Edges.Tenant.ID != id.TenantID {
-			continue
-		}
-		if p.Archived && !includeArchived {
-			continue
-		}
-		if effectiveAccess(factsOf(p), id) > NoAccess {
-			out = append(out, p)
-		}
-	}
-	return out, nil
-}
-
 // ProjectWithAccess pairs a project with the caller's effective access level.
 type ProjectWithAccess struct {
 	Project *ent.Project
 	Access  Access
 }
 
-// ListProjectsWithAccess is ListProjects but also returns the caller's effective access
-// per project, so callers can report the access level alongside each project.
+// ListProjectsWithAccess returns every project in the tenant that the caller can at least
+// read, each paired with the caller's effective access level so callers can report it.
+// Archived projects are omitted unless includeArchived is true.
 func (s *Store) ListProjectsWithAccess(ctx context.Context, id Identity, includeArchived bool) ([]ProjectWithAccess, error) {
 	all, err := s.client.Project.Query().
 		Where(project.HasTenantWith(tenant.IDEQ(id.TenantID))).
