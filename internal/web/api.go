@@ -106,6 +106,13 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleDeleteDocument)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "restore-snapshot",
+		Method:      http.MethodPost,
+		Path:        "/documents/{id}/restore",
+		Summary:     "Restore a document to a snapshot version (body-only by default)",
+	}, s.handleRestoreSnapshot)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "me",
 		Method:      http.MethodGet,
 		Path:        "/me",
@@ -544,4 +551,40 @@ func (s *Server) handleDeleteDocument(ctx context.Context, in *deleteDocumentInp
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
 	return &deleteDocumentOutput{}, nil
+}
+
+// --- restore-snapshot ---
+
+type restoreSnapshotInput struct {
+	ID   string `path:"id"`
+	Body struct {
+		Version     int    `json:"version" minimum:"1" doc:"Snapshot version to restore"`
+		BaseVersion int    `json:"base_version" minimum:"1" doc:"Current document version the caller has read"`
+		Scope       string `json:"scope,omitempty" enum:"body,full" doc:"body (default) restores only the body; full also restores overview and tags"`
+		Comment     string `json:"comment,omitempty"`
+	}
+}
+
+type restoreSnapshotOutput struct {
+	Body DocumentDTO
+}
+
+func (s *Server) handleRestoreSnapshot(ctx context.Context, in *restoreSnapshotInput) (*restoreSnapshotOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	docID, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := s.svc.RestoreSnapshot(ctx, id, docID, in.Body.Version, in.Body.BaseVersion, store.RestoreScope(in.Body.Scope), in.Body.Comment)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	html, err := renderMarkdown(doc.Body)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("render failed: " + err.Error())
+	}
+	return &restoreSnapshotOutput{Body: toDocumentDTO(doc, html)}, nil
 }

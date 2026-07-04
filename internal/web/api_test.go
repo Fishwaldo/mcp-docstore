@@ -478,3 +478,70 @@ func TestDeleteDocumentUnknownIDNotFound(t *testing.T) {
 	rec := doJSON(t, srv, id, http.MethodDelete, "/documents/00000000-0000-0000-0000-000000000001", nil)
 	require.Equal(t, 404, rec.Code, rec.Body.String())
 }
+
+// --- restore-snapshot ---
+
+func TestRestoreSnapshotBodyOnlyPreservesLiveMetadata(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	_, docID := seedProjectAndDoc(t, srv, id)
+
+	// Bump to v2 with a new body AND new tags. Restoring v1 body-only (the default)
+	// must bring back the v1 body while KEEPING the live v2 tags.
+	liveTags := []string{"seed", "status:done"}
+	rec := doJSON(t, srv, id, http.MethodPatch, "/documents/"+docID, map[string]any{
+		"base_version": 1, "body": "# Doc One\n\nsecond body\n", "tags": liveTags,
+	})
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	rec = doJSON(t, srv, id, http.MethodPost, "/documents/"+docID+"/restore", map[string]any{
+		"version":      1,
+		"base_version": 2,
+	})
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var dto DocumentDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, 3, dto.Version)
+	require.Contains(t, dto.BodyHTML, "hello body") // v1 body restored
+	require.Equal(t, liveTags, dto.Tags)            // live tags preserved
+}
+
+func TestRestoreSnapshotFullRestoresMetadata(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	_, docID := seedProjectAndDoc(t, srv, id)
+
+	rec := doJSON(t, srv, id, http.MethodPatch, "/documents/"+docID, map[string]any{
+		"base_version": 1, "body": "# Doc One\n\nsecond body\n", "tags": []string{"changed"},
+	})
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	rec = doJSON(t, srv, id, http.MethodPost, "/documents/"+docID+"/restore", map[string]any{
+		"version":      1,
+		"base_version": 2,
+		"scope":        "full",
+	})
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var dto DocumentDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, []string{"seed", "status:draft"}, dto.Tags) // v1 tags restored
+}
+
+func TestRestoreSnapshotStaleBaseVersionConflicts(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	_, docID := seedProjectAndDoc(t, srv, id)
+
+	// Bump to v2 first so a v1 snapshot actually exists (snapshots are only
+	// created as a side effect of an edit); the restore below targets that
+	// snapshot but claims a stale base_version against the now-current v2 doc.
+	rec := doJSON(t, srv, id, http.MethodPatch, "/documents/"+docID, map[string]any{
+		"base_version": 1, "body": "# Doc One\n\nsecond body\n",
+	})
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	rec = doJSON(t, srv, id, http.MethodPost, "/documents/"+docID+"/restore", map[string]any{
+		"version":      1,
+		"base_version": 99,
+	})
+	require.Equal(t, 409, rec.Code, rec.Body.String())
+}
