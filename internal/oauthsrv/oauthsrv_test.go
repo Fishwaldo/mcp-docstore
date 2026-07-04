@@ -176,7 +176,103 @@ func TestNew_SucceedsAndJWTModeActive(t *testing.T) {
 	require.True(t, pub.Equal(km.Signer.Public()))
 }
 
-func TestSeedBFFClient_Idempotent(t *testing.T) {
+func TestSeedWebClient_CreatesPublicClient(t *testing.T) {
+	issuerURL, rootCAs := startUpstreamOIDC(t)
+	entc := newTestEntClient(t)
+	km, err := LoadOrCreateKeyMaterial(context.Background(), entc)
+	require.NoError(t, err)
+	st := newTestCombinedStore(t, entc)
+
+	logger := slog.New(slog.DiscardHandler)
+	cfg := baseConfig(issuerURL, rootCAs, true)
+
+	svc, err := New(context.Background(), cfg, st, km, entc, logger)
+	require.NoError(t, err)
+	defer svc.Close()
+
+	id, err := svc.SeedWebClient(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "docstore-web", id)
+
+	client, err := svc.srv.GetClient(context.Background(), "docstore-web")
+	require.NoError(t, err)
+	require.Equal(t, storage.ClientTypePublic, client.ClientType)
+	require.Empty(t, client.ClientSecretHash)
+	require.Equal(t, "none", client.TokenEndpointAuthMethod)
+	require.Equal(t, []string{"https://docstore.example.com/auth/callback"}, client.RedirectURIs)
+	require.ElementsMatch(t, []string{"authorization_code", "refresh_token"}, client.GrantTypes)
+	require.Equal(t, []string{"code"}, client.ResponseTypes)
+}
+
+func TestSeedWebClient_SecondCallDoesNotRewrite(t *testing.T) {
+	issuerURL, rootCAs := startUpstreamOIDC(t)
+	entc := newTestEntClient(t)
+	km, err := LoadOrCreateKeyMaterial(context.Background(), entc)
+	require.NoError(t, err)
+	st := newTestCombinedStore(t, entc)
+
+	logger := slog.New(slog.DiscardHandler)
+	cfg := baseConfig(issuerURL, rootCAs, true)
+
+	svc, err := New(context.Background(), cfg, st, km, entc, logger)
+	require.NoError(t, err)
+	defer svc.Close()
+
+	_, err = svc.SeedWebClient(context.Background())
+	require.NoError(t, err)
+
+	first, err := svc.srv.GetClient(context.Background(), "docstore-web")
+	require.NoError(t, err)
+
+	_, err = svc.SeedWebClient(context.Background())
+	require.NoError(t, err)
+
+	second, err := svc.srv.GetClient(context.Background(), "docstore-web")
+	require.NoError(t, err)
+
+	require.Equal(t, first.UpdatedAt, second.UpdatedAt, "second SeedWebClient call must not rewrite an already-matching client row")
+}
+
+func TestSeedWebClient_MismatchedShapeIsReseeded(t *testing.T) {
+	issuerURL, rootCAs := startUpstreamOIDC(t)
+	entc := newTestEntClient(t)
+	km, err := LoadOrCreateKeyMaterial(context.Background(), entc)
+	require.NoError(t, err)
+	st := newTestCombinedStore(t, entc)
+
+	logger := slog.New(slog.DiscardHandler)
+	cfg := baseConfig(issuerURL, rootCAs, true)
+
+	svc, err := New(context.Background(), cfg, st, km, entc, logger)
+	require.NoError(t, err)
+	defer svc.Close()
+
+	// Simulate a pre-existing confidential BFF client row from before this migration: the
+	// shape doesn't match (confidential, non-empty auth method), so SeedWebClient must
+	// overwrite it rather than leaving the stale confidential record in place.
+	require.NoError(t, svc.srv.SaveClient(context.Background(), &storage.Client{
+		ClientID:                "docstore-web",
+		ClientType:              storage.ClientTypeConfidential,
+		ClientSecretHash:        "$2a$10$abcdefghijklmnopqrstuv",
+		TokenEndpointAuthMethod: "client_secret_post",
+		RedirectURIs:            []string{"https://docstore.example.com/auth/callback"},
+		GrantTypes:              []string{"authorization_code", "refresh_token"},
+		ResponseTypes:           []string{"code"},
+		ClientName:              "DocStore Web UI",
+	}))
+
+	id, err := svc.SeedWebClient(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "docstore-web", id)
+
+	client, err := svc.srv.GetClient(context.Background(), "docstore-web")
+	require.NoError(t, err)
+	require.Equal(t, storage.ClientTypePublic, client.ClientType)
+	require.Empty(t, client.ClientSecretHash)
+	require.Equal(t, "none", client.TokenEndpointAuthMethod)
+}
+
+func TestRateLimiters_WiredAndStoppedByClose(t *testing.T) {
 	issuerURL, rootCAs := startUpstreamOIDC(t)
 	entc := newTestEntClient(t)
 	km, err := LoadOrCreateKeyMaterial(context.Background(), entc)
@@ -189,22 +285,30 @@ func TestSeedBFFClient_Idempotent(t *testing.T) {
 	svc, err := New(context.Background(), cfg, st, km, entc, logger)
 	require.NoError(t, err)
 
-	id1, secret1, err := svc.SeedBFFClient(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, "docstore-web", id1)
-	require.NotEmpty(t, secret1)
+	require.NotNil(t, svc.rateLimiter, "New must retain the per-IP rate limiter it wires into server.Config")
+	require.NotNil(t, svc.clientRegRateLimiter, "New must retain the client-registration rate limiter it wires into server.Config")
 
-	id2, secret2, err := svc.SeedBFFClient(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, id1, id2)
-	require.Equal(t, secret1, secret2)
+	// Close must be safe to call and must stop both limiters' background cleanup goroutines.
+	// There is no exported "is stopped" query, so this only asserts Close does not panic and
+	// is idempotent-safe to call once; TestClose_SafeToCallOnce below covers double-Close.
+	svc.Close()
+}
 
-	client, err := svc.srv.GetClient(context.Background(), "docstore-web")
+func TestClose_SafeToCallTwice(t *testing.T) {
+	issuerURL, rootCAs := startUpstreamOIDC(t)
+	entc := newTestEntClient(t)
+	km, err := LoadOrCreateKeyMaterial(context.Background(), entc)
 	require.NoError(t, err)
-	require.Equal(t, []string{"https://docstore.example.com/auth/callback"}, client.RedirectURIs)
-	require.Equal(t, "client_secret_post", client.TokenEndpointAuthMethod)
-	require.ElementsMatch(t, []string{"authorization_code", "refresh_token"}, client.GrantTypes)
-	require.Equal(t, []string{"code"}, client.ResponseTypes)
+	st := newTestCombinedStore(t, entc)
+
+	logger := slog.New(slog.DiscardHandler)
+	cfg := baseConfig(issuerURL, rootCAs, true)
+
+	svc, err := New(context.Background(), cfg, st, km, entc, logger)
+	require.NoError(t, err)
+
+	svc.Close()
+	require.NotPanics(t, svc.Close)
 }
 
 func TestNew_AllowPrivateIPTogglesWarnLog(t *testing.T) {

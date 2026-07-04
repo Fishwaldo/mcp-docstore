@@ -25,11 +25,15 @@ import (
 
 // HKDF info strings identify each secret derived from the stored master secret. They are
 // fixed forever: changing one would silently rotate that secret (invalidating every
-// encrypted row, issued BFF client secret, or consent cookie signed with the old value) on
-// every existing deployment's next boot.
+// encrypted row or consent cookie signed with the old value) on every existing deployment's
+// next boot.
+//
+// "docstore-bff-client-secret-v1" was retired along with the confidential BFF client secret
+// it derived (the web SPA is now a public PKCE client with no secret) and must never be
+// reused for a new purpose: a deployment upgrading through the version that still derived it
+// would otherwise have that old secret's value handed to whatever new thing reuses the string.
 const (
 	hkdfInfoEncryptionKey = "docstore-oauth-at-rest-v1"
-	hkdfInfoBFFSecret     = "docstore-bff-client-secret-v1"
 	hkdfInfoConsentKey    = "docstore-consent-hmac-v1"
 )
 
@@ -41,15 +45,14 @@ const (
 )
 
 // KeyMaterial is the server's persistent cryptographic root, loaded from (or created in) the
-// database on boot. Everything else — token signing, at-rest encryption, the first-party web
-// client secret, consent-cookie signing — is the stored EC key or an HKDF derivation of the
-// stored master secret, so a fresh database bootstraps itself and every replica sharing the
-// database agrees on all derived values.
+// database on boot. Everything else — token signing, at-rest encryption, consent-cookie
+// signing — is the stored EC key or an HKDF derivation of the stored master secret, so a
+// fresh database bootstraps itself and every replica sharing the database agrees on all
+// derived values.
 type KeyMaterial struct {
 	Signer        *ecdsa.PrivateKey // ES256 access-token signing key
 	KID           string            // stable JWK kid (random hex, generated once)
 	EncryptionKey []byte            // 32 bytes — entstore at-rest encryption
-	BFFSecret     string            // first-party web client secret (hex)
 	ConsentKey    []byte            // 32 bytes — consent cookie HMAC
 }
 
@@ -131,10 +134,6 @@ func keyMaterialFromRow(row *ent.OAuthKey) (*KeyMaterial, error) {
 	if err != nil {
 		return nil, fmt.Errorf("derive encryption key: %w", err)
 	}
-	bffSecretKey, err := deriveKey(master, hkdfInfoBFFSecret)
-	if err != nil {
-		return nil, fmt.Errorf("derive BFF secret: %w", err)
-	}
 	consentKey, err := deriveKey(master, hkdfInfoConsentKey)
 	if err != nil {
 		return nil, fmt.Errorf("derive consent key: %w", err)
@@ -144,7 +143,6 @@ func keyMaterialFromRow(row *ent.OAuthKey) (*KeyMaterial, error) {
 		Signer:        signer,
 		KID:           row.Kid,
 		EncryptionKey: encryptionKey,
-		BFFSecret:     hex.EncodeToString(bffSecretKey),
 		ConsentKey:    consentKey,
 	}, nil
 }

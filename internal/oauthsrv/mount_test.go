@@ -76,8 +76,9 @@ func newMountTestService(t *testing.T, registrationOpen bool) *Service {
 
 	svc, err := New(context.Background(), cfg, st, km, entc, slog.New(slog.DiscardHandler))
 	require.NoError(t, err)
+	t.Cleanup(svc.Close)
 
-	_, _, err = svc.SeedBFFClient(context.Background())
+	_, err = svc.SeedWebClient(context.Background())
 	require.NoError(t, err)
 
 	require.NoError(t, svc.srv.SaveClient(context.Background(), &storage.Client{
@@ -104,7 +105,7 @@ func bffAuthorizeQuery(t *testing.T) string {
 	t.Helper()
 	verifier := oauth2.GenerateVerifier()
 	q := url.Values{
-		"client_id":             {bffClientID},
+		"client_id":             {webClientID},
 		"redirect_uri":          {"https://docstore.example.com/auth/callback"},
 		"response_type":         {"code"},
 		"code_challenge":        {oauth2.S256ChallengeFromVerifier(verifier)},

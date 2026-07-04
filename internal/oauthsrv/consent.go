@@ -116,7 +116,7 @@ func (s *Service) consentGate(inner http.Handler) http.Handler {
 		}
 
 		clientID := r.URL.Query().Get("client_id")
-		if clientID == bffClientID || s.hasConsent(r, clientID) {
+		if clientID == webClientID || s.hasConsent(r, clientID) {
 			inner.ServeHTTP(w, r)
 			return
 		}

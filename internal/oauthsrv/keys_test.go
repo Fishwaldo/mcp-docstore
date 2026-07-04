@@ -6,6 +6,7 @@ package oauthsrv
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"testing"
 
 	"entgo.io/ent/dialect"
@@ -44,7 +45,6 @@ func TestLoadOrCreateKeyMaterial_FirstCallCreates(t *testing.T) {
 	require.Equal(t, "P-256", km.Signer.Curve.Params().Name)
 	require.NotEmpty(t, km.KID)
 	require.Len(t, km.EncryptionKey, 32)
-	require.NotEmpty(t, km.BFFSecret)
 	require.Len(t, km.ConsentKey, 32)
 }
 
@@ -61,7 +61,6 @@ func TestLoadOrCreateKeyMaterial_SecondCallPersists(t *testing.T) {
 	require.Equal(t, first.Signer.D, second.Signer.D)
 	require.Equal(t, first.KID, second.KID)
 	require.Equal(t, first.EncryptionKey, second.EncryptionKey)
-	require.Equal(t, first.BFFSecret, second.BFFSecret)
 	require.Equal(t, first.ConsentKey, second.ConsentKey)
 }
 
@@ -77,7 +76,6 @@ func TestLoadOrCreateKeyMaterial_FreshCallsOnSameDBAgree(t *testing.T) {
 
 	require.Equal(t, first.KID, second.KID)
 	require.Equal(t, first.EncryptionKey, second.EncryptionKey)
-	require.Equal(t, first.BFFSecret, second.BFFSecret)
 	require.Equal(t, first.ConsentKey, second.ConsentKey)
 }
 
@@ -89,6 +87,31 @@ func TestLoadOrCreateKeyMaterial_DerivationsDiffer(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotEqual(t, km.EncryptionKey, km.ConsentKey)
-	require.NotEqual(t, string(km.EncryptionKey), km.BFFSecret)
-	require.NotEqual(t, string(km.ConsentKey), km.BFFSecret)
+}
+
+// Known-answer constants captured by running the pre-removal derivation code
+// (hkdf.New(sha256.New, master, nil, info) with derivedKeyBytes=32) against the fixed 32-byte
+// master below, BEFORE the BFFSecret derivation (hkdfInfoBFFSecret) was deleted from keys.go.
+// This test proves that removing the BFFSecret derivation did not disturb the other two: since
+// each derivation uses HKDF-Expand with an independent info string and the same secret/salt,
+// they are mathematically independent outputs, but this test is the empirical proof rather than
+// an assertion of that fact.
+const (
+	knownAnswerMasterHex        = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	knownAnswerEncryptionKeyHex = "6c2abd2a4fde16ee443e3f96d48dd853c209c5522730ebf5f016f0bfca4f8ef4"
+	knownAnswerConsentKeyHex    = "5c775011d616aaba84988e532d6c6ae64dc8aa0d617aba2e51f4ead33c11f5f9"
+)
+
+func TestDeriveKey_KnownAnswer(t *testing.T) {
+	master, err := hex.DecodeString(knownAnswerMasterHex)
+	require.NoError(t, err)
+	require.Len(t, master, masterKeyBytes)
+
+	enc, err := deriveKey(master, hkdfInfoEncryptionKey)
+	require.NoError(t, err)
+	require.Equal(t, knownAnswerEncryptionKeyHex, hex.EncodeToString(enc))
+
+	consent, err := deriveKey(master, hkdfInfoConsentKey)
+	require.NoError(t, err)
+	require.Equal(t, knownAnswerConsentKeyHex, hex.EncodeToString(consent))
 }
