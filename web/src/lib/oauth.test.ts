@@ -171,7 +171,7 @@ describe("handleCallback", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("falls back to a fresh login when the returned state does not match", async () => {
+  it("throws AuthCallbackError without restarting login when the returned state does not match", async () => {
     await performLogin("/somewhere");
 
     const assign = setLocation({
@@ -180,11 +180,41 @@ describe("handleCallback", () => {
       search: "?code=abc&state=wrong-state",
     });
 
-    await oauth.handleCallback();
-
+    await expect(oauth.handleCallback()).rejects.toBeInstanceOf(oauth.AuthCallbackError);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(assign).toHaveBeenCalledTimes(1);
-    expect((assign.mock.calls[0][0] as string).startsWith(`${ORIGIN}/oauth/authorize`)).toBe(true);
+    // Must NOT auto-restart login (no redirect to /oauth/authorize) — that restart is the loop.
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("throws AuthCallbackError with the provider error code and never loops when the callback carries error=access_denied", async () => {
+    await performLogin("/somewhere");
+
+    const assign = setLocation({
+      href: `${ORIGIN}/auth/callback?error=access_denied&error_description=denied&state=s`,
+      pathname: "/auth/callback",
+      search: "?error=access_denied&error_description=denied&state=s",
+    });
+
+    await expect(oauth.handleCallback()).rejects.toMatchObject({
+      name: "AuthCallbackError",
+      code: "access_denied",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("throws AuthCallbackError without restarting login when the token exchange fails", async () => {
+    const state = await performLogin("/somewhere");
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { error: "invalid_grant" }));
+
+    const assign = setLocation({
+      href: `${ORIGIN}/auth/callback?code=abc123&state=${state}`,
+      pathname: "/auth/callback",
+      search: `?code=abc123&state=${state}`,
+    });
+
+    await expect(oauth.handleCallback()).rejects.toBeInstanceOf(oauth.AuthCallbackError);
+    expect(assign).not.toHaveBeenCalled();
   });
 });
 

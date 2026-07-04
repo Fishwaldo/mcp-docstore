@@ -117,10 +117,24 @@ export async function login(returnTo: string): Promise<void> {
   window.location.assign(`${authorizeEndpoint}?${params.toString()}`);
 }
 
+// AuthCallbackError is thrown by handleCallback when a sign-in cannot be completed. The
+// /auth/callback view renders it as a terminal error with a manual retry, deliberately NOT
+// auto-restarting login: an authorization server that keeps denying (e.g. error=access_denied,
+// or a user without upstream access) would otherwise spin authorize→callback→login forever.
+export class AuthCallbackError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "AuthCallbackError";
+    this.code = code;
+  }
+}
+
 // handleCallback runs on the /auth/callback route: it validates the state the AS echoed back
-// against the one stashed by login, exchanges the code for tokens, and returns to whatever page
-// the user originally wanted. Any failure (missing/mismatched state, a failed exchange) falls
-// back to starting a fresh login rather than leaving the SPA stuck on the callback URL.
+// against the one stashed by login, exchanges the code for tokens, and navigates to whatever
+// page the user originally wanted. On any failure it throws AuthCallbackError — it never
+// restarts login itself, so a persistently failing/denying provider cannot produce a redirect
+// loop; the callback view surfaces the error and offers a user-initiated retry.
 export async function handleCallback(): Promise<void> {
   const url = new URL(window.location.href);
   const code = url.searchParams.get("code");
@@ -130,22 +144,36 @@ export async function handleCallback(): Promise<void> {
   const stashRaw = sessionStorage.getItem(PKCE_STASH_KEY);
   sessionStorage.removeItem(PKCE_STASH_KEY);
 
-  if (authError || !code || !state || !stashRaw) {
-    await login("/");
-    return;
+  if (authError) {
+    const desc = url.searchParams.get("error_description");
+    throw new AuthCallbackError(
+      authError,
+      desc ? `${authError}: ${desc}` : `Sign-in was rejected (${authError}).`,
+    );
+  }
+
+  if (!code || !state || !stashRaw) {
+    throw new AuthCallbackError(
+      "invalid_callback",
+      "This sign-in link is no longer valid. Please start over.",
+    );
   }
 
   let stash: PkceStash;
   try {
     stash = JSON.parse(stashRaw) as PkceStash;
   } catch {
-    await login("/");
-    return;
+    throw new AuthCallbackError(
+      "invalid_callback",
+      "This sign-in link is no longer valid. Please start over.",
+    );
   }
 
   if (state !== stash.state) {
-    await login("/");
-    return;
+    throw new AuthCallbackError(
+      "state_mismatch",
+      "Sign-in could not be verified. Please start over.",
+    );
   }
 
   const body = new URLSearchParams({
@@ -163,8 +191,10 @@ export async function handleCallback(): Promise<void> {
   });
 
   if (!resp.ok) {
-    await login(stash.returnTo || "/");
-    return;
+    throw new AuthCallbackError(
+      "token_exchange_failed",
+      "Could not complete sign-in. Please try again.",
+    );
   }
 
   const tokens = (await resp.json()) as TokenResponse;
