@@ -149,7 +149,8 @@ docker build -t mcp-docstore .
 
 MCP DocStore is its own **OAuth 2.1 authorization server** (built on
 [mcp-oauth](https://github.com/giantswarm/mcp-oauth)): it federates login to your upstream IdP
-(the `oidc:` block) and mints its own short-lived, audience-bound access tokens for `/mcp`. It
+(the `oidc:` block) and mints its own short-lived, audience-bound access tokens, verified by one
+shared pipeline for both `/mcp` and (when the web UI is enabled) `/api`. It
 serves the full OAuth surface itself — `/oauth/{authorize,callback,token,revoke,register}` plus
 `/.well-known/{oauth-authorization-server,openid-configuration,oauth-protected-resource,jwks.json}`
 — so clients discover everything from the MCP URL alone; there is no separate Okta app per
@@ -209,10 +210,12 @@ oauth:
 HTTPS redirect URIs — use it to restrict which third-party clients may ever register, instead of
 leaving registration open to anyone who can reach the server.
 
-Every request to `/mcp` carries `Authorization: Bearer <token>`; the server verifies its own
-signature (no network call to the IdP on this path), `exp`, `iss`, and `aud`, resolves the email
-to a tenant, and rejects unknown identities with `401` plus a `WWW-Authenticate` challenge
-pointing at the [RFC 9728](https://datatracker.ietf.org/doc/rfc9728) protected-resource metadata.
+Every request to `/mcp` (and to `/api/*` when the web UI is enabled) carries
+`Authorization: Bearer <token>`; the server verifies its own signature (no network call to the
+IdP on this path), `exp`, `iss`, and `aud`, resolves the email to a tenant, and rejects an
+invalid/expired/revoked token with `401` plus a `WWW-Authenticate` challenge pointing at the
+[RFC 9728](https://datatracker.ietf.org/doc/rfc9728) protected-resource metadata (`/api` instead
+returns `403` for a token that's valid but resolves to no tenant — see the Web UI section below).
 
 **Rotating signing keys.** Signing keys are generated automatically on first boot and stored
 (alongside a master secret used to derive at-rest encryption and cookie-signing keys) in the
@@ -231,24 +234,88 @@ access and refresh token is invalidated**, and every MCP client and web UI user 
 > must re-authenticate once against the new flow; there is no way to carry over a resource-server
 > bearer token.
 
-### Web UI (optional, BFF)
+### Web UI and REST API
 
-A browser-facing session layer can be enabled by adding a `web:` block to the config. It serves
-the single-page app at `/`, the login/callback/logout flow at `/auth/*`, and the read-only REST
-API at `/api/*`. The web UI is a **first-party client of the embedded authorization server**,
-auto-seeded from server-derived key material on boot — it needs no OAuth client credentials or
-redirect URL of its own, only session cookie/timeout knobs:
+An optional browser-facing UI can be enabled by adding a `web:` block to the config. It serves
+the built single-page app at `/`, a read-only REST API at `/api/*`, and public API documentation
+at `/openapi.json` + `/docs` (also mirrored at `/api/openapi.json` + `/api/docs`) —
+**unauthenticated**, since an API spec isn't a secret:
 
 ```yaml
 web:
-  cookie_secure: true           # set false only for local HTTP dev
-  idle_timeout: 24h
-  absolute_timeout: 168h
-  sweep_interval: 1h
+  enabled: true
 ```
 
-When `web:` is absent the server is MCP-only: `/mcp` (plus the OAuth/discovery routes) is the
-active surface and `/` returns 404.
+When `web:` is absent (or `enabled: false`) the server is MCP-only: `/`, `/api/*`, and the
+spec/docs routes all 404, and `/mcp` plus the OAuth/discovery routes are the only active surface.
+
+**The SPA is a public OAuth client, not a session-backed BFF.** There is no server-side session,
+cookie, or CSRF token for the web UI at all. `docstore-web` — seeded automatically on boot as a
+**public** client (no secret; PKCE proves possession of the authorization code) and exempted from
+the human consent page as first-party — drives its own Authorization Code + PKCE flow directly
+against this server's own `/oauth/{authorize,token,revoke}` from inside the browser. `/api/*`
+verifies the resulting bearer tokens through the exact same in-process verifier `/mcp` uses
+(signature, issuer, expiry, audience, revocation) — there is no BFF process or session store
+sitting between the browser and that verifier.
+
+Tokens live only in the browser tab: the access token (15-minute default lifetime,
+`oauth.access_token_ttl`) sits in a module-scoped JS variable that's gone on reload or tab close,
+and the refresh token lives in `sessionStorage` (gone on tab close, never shared across tabs).
+Refresh tokens rotate on every use, and reusing an already-rotated one revokes its whole family —
+so a stolen refresh token has a narrow window before the legitimate tab's next refresh detects the
+theft and kills it. **This is a deliberate trade-off, not a claim that XSS risk is eliminated**:
+a successful script injection in the SPA can still exfiltrate whatever token is live in that tab
+at that instant. The mitigations are the short access-token lifetime (bounding the blast radius),
+per-tab (not shared-across-tabs) `sessionStorage`, rotation + reuse detection on refresh, a strict
+`Content-Security-Policy` (`script-src 'self'`, no inline scripts) on every response the SPA
+serves, and server-side sanitization of any user-authored HTML that reaches the page (search
+snippets, rendered markdown). **Logout is DocStore-only**: it revokes the refresh token
+(`POST /oauth/revoke`) and clears local browser state, but never touches the upstream IdP's own
+session — a user who logs out and clicks sign-in again may be silently re-authenticated if their
+upstream IdP session is still live. Ending that upstream session is a separate action against the
+IdP itself.
+
+#### External REST API clients
+
+Any OAuth client — not just the bundled SPA — can reach `/api/*` through the same recipe:
+
+1. **Register** (`POST /oauth/register`, RFC 7591 dynamic client registration) with your own
+   redirect URI.
+2. **Authorize**: send the user's browser to `GET /oauth/authorize` with a PKCE challenge. Since
+   your client isn't first-party, the user sees DocStore's one-time consent page before being
+   forwarded to the upstream IdP.
+3. **Exchange** the returned code at `POST /oauth/token` for an access + refresh token pair.
+4. **Call** `/api/*` with `Authorization: Bearer <access_token>` — the identical bearer pipeline
+   `/mcp` uses.
+
+Two limitations to design around:
+- **There is no `client_credentials` (machine-to-machine) grant.** Every token chain traces back
+  to a human completing a browser login through the upstream IdP at least once; a purely
+  unattended/service client cannot mint its first token on its own.
+- **A refresh token idle longer than `oauth.refresh_token_ttl` (default 168h / 7 days) expires.**
+  A client that goes dormant past that window must repeat the authorize → consent → exchange
+  steps; there is no server-side keep-alive for an unused refresh token.
+
+> **Breaking change (removing the web BFF):** the web UI is no longer a confidential OAuth client
+> with a server-side session — it is the public-client SPA described above. Removed config keys:
+> `web.client_id`, `web.client_secret`, `web.redirect_url`, `web.post_logout_redirect_url`,
+> `web.scopes`, `web.cookie_secure`, `web.idle_timeout`, `web.absolute_timeout`,
+> `web.sweep_interval` — `web:` now has exactly one key, `enabled`. `web.cookie_secure` and
+> `web.sweep_interval` reappear, renamed and AS-wide rather than web-only, as
+> `oauth.cookie_secure` and `oauth.sweep_interval` (there is no idle/absolute session timeout to
+> configure any more — the SPA's session lifetime is just its access/refresh token lifetimes).
+> Default token lifetimes also changed: `oauth.access_token_ttl` is now **15m** (was 1h) and
+> `oauth.refresh_token_ttl` is now **168h** / 7 days (was 720h / 30 days).
+>
+> The old BFF's session table (`sessions` in the database) is now orphaned: ent's auto-migration
+> only creates/alters tables for schemas still declared in `internal/ent/schema`, it never drops
+> ones that were removed. Upgrading operators must drop it by hand:
+> ```sql
+> DROP TABLE sessions;
+> ```
+> Existing web UI users are simply signed out by the upgrade (there is no migration from a
+> server-side session to the in-browser token model) and must sign in again; no MCP client is
+> affected.
 
 ## Architecture
 
@@ -266,6 +333,7 @@ Layered, with each package owning one job:
 | `internal/search` | Bleve index: build, query, rebuild |
 | `internal/index` | the only bridge between `store` and `search` (keeps the index in sync) |
 | `internal/mcp` | MCP tool definitions + thin handlers + elicitation |
+| `internal/web` | optional bearer-gated `/api` REST surface + embedded SPA static serving |
 | `cmd/server` | boot, HTTP wiring, CLI |
 
 Built on the [Go MCP SDK](https://github.com/modelcontextprotocol/go-sdk).
