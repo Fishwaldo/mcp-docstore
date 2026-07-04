@@ -20,6 +20,15 @@ export class ApiNoAccessError extends Error {
   }
 }
 
+export class ConflictError extends Error {
+  currentVersion: number;
+  constructor(currentVersion: number, message: string) {
+    super(message);
+    this.name = "ConflictError";
+    this.currentVersion = currentVersion;
+  }
+}
+
 export interface MeDTO {
   email: string;
   tenant: string;
@@ -49,6 +58,7 @@ export interface DocumentDTO {
   project_id?: string;
   title: string;
   overview: string;
+  body: string;
   tags: string[];
   version: number;
   change_comment: string;
@@ -113,10 +123,19 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(`API error 403: ${JSON.stringify(body)}`);
   }
 
+  if (resp.status === 409) {
+    const body = (await resp.json().catch(() => null)) as { detail?: string } | null;
+    const detail = body?.detail ?? "version conflict";
+    const m = /current version is (\d+)/.exec(detail);
+    throw new ConflictError(m ? Number(m[1]) : 0, detail);
+  }
+
   if (!resp.ok) {
     const text = await resp.text().catch(() => resp.statusText);
     throw new Error(`API error ${resp.status}: ${text}`);
   }
+
+  if (resp.status === 204) return undefined as T;
   return resp.json() as Promise<T>;
 }
 
@@ -171,4 +190,60 @@ export async function searchDocuments(params: SearchParams): Promise<SearchHitDT
   if (params.tags) params.tags.forEach((t) => p.append("tags", t));
   if (params.limit) p.set("limit", String(params.limit));
   return apiFetch<SearchHitDTO[]>(`/search?${p.toString()}`);
+}
+
+export interface EditDocumentInput {
+  base_version: number;
+  overview: string;
+  body: string;
+  tags: string[];
+  comment?: string;
+}
+
+export interface CreateDocumentInput {
+  project_id: string;
+  title: string;
+  overview?: string;
+  body?: string;
+  tags?: string[];
+}
+
+export interface RestoreSnapshotInput {
+  version: number;
+  base_version: number;
+  scope?: "body" | "full";
+  comment?: string;
+}
+
+export function editDocument(id: string, input: EditDocumentInput): Promise<DocumentDTO> {
+  return apiFetch<DocumentDTO>(`/documents/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function createDocument(input: CreateDocumentInput): Promise<DocumentDTO> {
+  return apiFetch<DocumentDTO>(`/documents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteDocument(id: string): Promise<void> {
+  await apiFetch<void>(`/documents/${id}`, { method: "DELETE" });
+}
+
+export function restoreSnapshot(id: string, input: RestoreSnapshotInput): Promise<DocumentDTO> {
+  return apiFetch<DocumentDTO>(`/documents/${id}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function listTags(): Promise<string[]> {
+  const out = await apiFetch<{ tags: string[] }>(`/tags`);
+  return out.tags;
 }

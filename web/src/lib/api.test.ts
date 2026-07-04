@@ -17,7 +17,13 @@ import {
   getDocument,
   searchDocuments,
   getMe,
+  editDocument,
+  createDocument,
+  deleteDocument,
+  restoreSnapshot,
+  listTags,
   ApiNoAccessError,
+  ConflictError,
   NO_ACCESS_EVENT,
 } from "./api";
 
@@ -171,6 +177,102 @@ describe("401 handling", () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(login).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("editDocument", () => {
+  it("PATCHes and returns the updated doc", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(200, {
+        id: "d1",
+        title: "T",
+        body: "# T",
+        body_html: "<h1>T</h1>",
+        overview: "",
+        tags: [],
+        version: 2,
+        change_comment: "",
+        updated_at: "2026-01-01T00:00:00Z",
+      })
+    );
+    const doc = await editDocument("d1", { base_version: 1, overview: "", body: "# T", tags: [] });
+    expect(doc.version).toBe(2);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/documents/d1");
+    expect((opts as RequestInit).method).toBe("PATCH");
+    expect(authHeader(mockFetch.mock.calls[0])).toBe("Bearer token-1");
+  });
+
+  it("throws ConflictError with the current version on 409", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(409, { title: "Conflict", status: 409, detail: "version conflict: current version is 5" })
+    );
+    const err = await editDocument("d1", { base_version: 1, overview: "", body: "x", tags: [] }).catch(
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(ConflictError);
+    expect(err).toMatchObject({ name: "ConflictError", currentVersion: 5 });
+  });
+});
+
+describe("createDocument", () => {
+  it("POSTs and returns the created doc", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(201, {
+        id: "d2",
+        title: "New",
+        body: "# New",
+        body_html: "<h1>New</h1>",
+        overview: "",
+        tags: [],
+        version: 1,
+        change_comment: "",
+        updated_at: "2026-01-01T00:00:00Z",
+      })
+    );
+    const doc = await createDocument({ project_id: "p1", title: "New" });
+    expect(doc.id).toBe("d2");
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/documents");
+    expect((opts as RequestInit).method).toBe("POST");
+  });
+});
+
+describe("deleteDocument", () => {
+  it("DELETEs and resolves void", async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(204, null));
+    await expect(deleteDocument("d1")).resolves.toBeUndefined();
+    expect(mockFetch.mock.calls[0][1].method).toBe("DELETE");
+  });
+});
+
+describe("restoreSnapshot", () => {
+  it("POSTs to the restore endpoint and returns the restored doc", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(200, {
+        id: "d1",
+        title: "T",
+        body: "# old",
+        body_html: "<h1>old</h1>",
+        overview: "",
+        tags: [],
+        version: 3,
+        change_comment: "",
+        updated_at: "2026-01-01T00:00:00Z",
+      })
+    );
+    const doc = await restoreSnapshot("d1", { version: 1, base_version: 2 });
+    expect(doc.version).toBe(3);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/documents/d1/restore");
+    expect((opts as RequestInit).method).toBe("POST");
+  });
+});
+
+describe("listTags", () => {
+  it("unwraps the tags array", async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(200, { tags: ["alpha", "beta"] }));
+    expect(await listTags()).toEqual(["alpha", "beta"]);
   });
 });
 
