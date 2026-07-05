@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ProjectView from "@/routes/ProjectView";
-import { getProject, listDocuments } from "@/lib/api";
+import { getProject, listDocuments, updateProject, archiveProject } from "@/lib/api";
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -11,6 +11,9 @@ vi.mock("@/lib/api", async () => {
     ...actual,
     getProject: vi.fn(),
     listDocuments: vi.fn(),
+    updateProject: vi.fn(),
+    archiveProject: vi.fn(),
+    unarchiveProject: vi.fn(),
   };
 });
 
@@ -107,6 +110,122 @@ describe("ProjectView", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/couldn.t load documents/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows management controls only when can_manage is true", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+  });
+
+  it("hides management controls for read-only users", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "read",
+      can_manage: false,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  });
+
+  it("Edit → Save calls updateProject with the new name", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(updateProject).mockResolvedValue({
+      id: "p1",
+      name: "Beta Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const nameInput = screen.getByRole("textbox", { name: /name/i });
+    fireEvent.change(nameInput, { target: { value: "Beta Project" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(updateProject).toHaveBeenCalledWith("p1", {
+        name: "Beta Project",
+        description: "desc",
+      });
+    });
+  });
+
+  it("Archive calls archiveProject", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(archiveProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: true,
+      access: "write",
+      can_manage: true,
+    });
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => {
+      expect(archiveProject).toHaveBeenCalledWith("p1");
     });
   });
 });
