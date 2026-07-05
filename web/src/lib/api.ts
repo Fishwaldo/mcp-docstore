@@ -288,3 +288,49 @@ export function unarchiveProject(id: string): Promise<ProjectDTO> {
 export async function deleteProject(id: string): Promise<void> {
   await apiFetch<void>(`/projects/${id}`, { method: "DELETE" });
 }
+
+export interface UserShareDTO {
+  email: string;
+  permission: string;
+}
+
+export interface GroupShareDTO {
+  group: string;
+  permission: string;
+}
+
+export interface ShareDTO {
+  users: UserShareDTO[];
+  groups: GroupShareDTO[];
+}
+
+export interface AddSharesInput {
+  kind: "user" | "group";
+  principals: string[];
+  permission: "read" | "write";
+}
+
+export interface RemoveSharesInput {
+  kind: "user" | "group";
+  principals: string[];
+}
+
+export function listShares(id: string): Promise<ShareDTO> {
+  return apiFetch<ShareDTO>(`/projects/${id}/shares`);
+}
+
+export function addShares(id: string, input: AddSharesInput): Promise<{ shares: ShareDTO; unresolved: string[] }> {
+  return apiFetch<{ shares: ShareDTO; unresolved: string[] }>(`/projects/${id}/shares`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function removeShares(id: string, input: RemoveSharesInput): Promise<void> {
+  await apiFetch<void>(`/projects/${id}/shares`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}

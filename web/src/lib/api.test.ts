@@ -27,6 +27,9 @@ import {
   archiveProject,
   unarchiveProject,
   deleteProject,
+  listShares,
+  addShares,
+  removeShares,
   ApiNoAccessError,
   ConflictError,
   NO_ACCESS_EVENT,
@@ -347,6 +350,38 @@ describe("deleteProject", () => {
   it("DELETEs and resolves void", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(204, null));
     await expect(deleteProject("p1")).resolves.toBeUndefined();
+    expect((mockFetch.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
+  });
+});
+
+describe("listShares", () => {
+  it("listShares GETs the shares", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(200, { users: [{ email: "a@x.com", permission: "read" }], groups: [] })
+    );
+    const s = await listShares("p1");
+    expect(s.users[0].email).toBe("a@x.com");
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/projects/p1/shares");
+  });
+});
+
+describe("addShares", () => {
+  it("addShares POSTs kind/principals/permission and returns shares+unresolved", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(200, { shares: { users: [], groups: [] }, unresolved: ["nobody@x.com"] })
+    );
+    const out = await addShares("p1", { kind: "user", principals: ["nobody@x.com"], permission: "write" });
+    expect(out.unresolved).toContain("nobody@x.com");
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/projects/p1/shares");
+    expect((opts as RequestInit).method).toBe("POST");
+  });
+});
+
+describe("removeShares", () => {
+  it("removeShares DELETEs with a body and resolves void", async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(204, null));
+    await expect(removeShares("p1", { kind: "user", principals: ["a@x.com"] })).resolves.toBeUndefined();
     expect((mockFetch.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
   });
 });
