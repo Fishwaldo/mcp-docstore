@@ -217,9 +217,13 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 	// mid-stream. ReadHeaderTimeout still defends against slow-header (slow-loris)
 	// attacks, IdleTimeout reaps idle keep-alive conns, and MaxHeaderBytes caps
 	// header memory. The request body is bounded per-route by maxBytes above.
+	rootHandler, err := compress(mux)
+	if err != nil {
+		return err
+	}
 	httpSrv := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           mux,
+		Handler:           rootHandler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
