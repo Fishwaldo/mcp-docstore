@@ -18,6 +18,12 @@ vi.mock("@/lib/api", async () => {
   };
 });
 
+vi.mock("@/components/SharesPanel", () => ({
+  default: ({ projectId }: { projectId: string }) => (
+    <div data-testid="shares-panel">SharesPanel:{projectId}</div>
+  ),
+}));
+
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return (
@@ -427,5 +433,64 @@ describe("ProjectView", () => {
       expect(updateProject).toHaveBeenCalledWith("p1", { visibility: "org" });
     });
     expect(screen.queryByText(/revokes access/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the Sharing panel when can_manage and visibility is private", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "private",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("shares-panel")).toBeInTheDocument();
+    });
+  });
+
+  it("hides the Sharing panel for an org project", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("shares-panel")).not.toBeInTheDocument();
+  });
+
+  it("hides the Sharing panel for a read-only private project", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "private",
+      archived: false,
+      access: "read",
+      can_manage: false,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("shares-panel")).not.toBeInTheDocument();
   });
 });

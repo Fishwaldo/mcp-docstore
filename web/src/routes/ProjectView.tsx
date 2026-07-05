@@ -10,6 +10,7 @@ import {
   unarchiveProject,
   deleteProject,
 } from "@/lib/api";
+import SharesPanel from "@/components/SharesPanel";
 
 export default function ProjectView() {
   const { id } = useParams<{ id: string }>();
@@ -285,6 +286,15 @@ export default function ProjectView() {
             </li>
           ))}
         </ul>
+      )}
+
+      {canManage && project.visibility === "private" && (
+        <div className="mt-8">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+            Sharing
+          </h2>
+          <SharesPanel projectId={project.id} />
+        </div>
       )}
 
       <Dialog.Root
