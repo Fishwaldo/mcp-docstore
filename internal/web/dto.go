@@ -8,6 +8,7 @@ import (
 
 	"github.com/Fishwaldo/mcp-docstore/internal/ent"
 	"github.com/Fishwaldo/mcp-docstore/internal/search"
+	"github.com/Fishwaldo/mcp-docstore/internal/store"
 )
 
 // ProjectDTO represents a project in JSON.
@@ -139,4 +140,33 @@ func toSearchHit(r search.Result) SearchHitDTO {
 		Score:      r.Score,
 		Snippet:    sanitizeSnippet(r.Snippet),
 	}
+}
+
+// ShareDTO is a project's user and group shares (private projects only).
+type ShareDTO struct {
+	Users  []UserShareDTO  `json:"users"`
+	Groups []GroupShareDTO `json:"groups"`
+}
+
+type UserShareDTO struct {
+	Email      string `json:"email"`
+	Permission string `json:"permission"`
+}
+
+type GroupShareDTO struct {
+	Group      string `json:"group"`
+	Permission string `json:"permission"`
+}
+
+// toShareDTO converts a store.ProjectShares to ShareDTO, always emitting Users/Groups
+// as empty slices rather than null for a stable JSON shape.
+func toShareDTO(s *store.ProjectShares) ShareDTO {
+	out := ShareDTO{Users: []UserShareDTO{}, Groups: []GroupShareDTO{}}
+	for _, u := range s.Users {
+		out.Users = append(out.Users, UserShareDTO{Email: u.Email, Permission: u.Permission})
+	}
+	for _, g := range s.Groups {
+		out.Groups = append(out.Groups, GroupShareDTO{Group: g.Group, Permission: g.Permission})
+	}
+	return out
 }

@@ -279,6 +279,30 @@ func TestListDocumentsHappy(t *testing.T) {
 	require.Equal(t, "D1", docs[0].Title)
 }
 
+// --- list-shares ---
+
+func TestListProjectShares(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+
+	// A private project owned by the caller, shared to a second user.
+	ctx := context.Background()
+	p, err := st.CreateProject(ctx, id, "Shared", "", "private")
+	require.NoError(t, err)
+	_, err = st.UpsertUser(ctx, id.TenantID, "api-share-b", "bob@acme.com", false)
+	require.NoError(t, err)
+	_, err = st.ShareProjectUsers(ctx, id, p.ID, []string{"bob@acme.com"}, "read")
+	require.NoError(t, err)
+
+	rec := doGet(t, srv, id, "/projects/"+p.ID.String()+"/shares")
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var dto ShareDTO
+	decodeJSON(t, rec, &dto)
+	require.Len(t, dto.Users, 1)
+	require.Equal(t, "bob@acme.com", dto.Users[0].Email)
+	require.Equal(t, "read", dto.Users[0].Permission)
+	require.Empty(t, dto.Groups)
+}
+
 // --- get-section ---
 
 func TestGetSectionHappy(t *testing.T) {

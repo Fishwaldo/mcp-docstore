@@ -56,6 +56,13 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleListDocuments)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "list-shares",
+		Method:      http.MethodGet,
+		Path:        "/projects/{id}/shares",
+		Summary:     "List a project's user and group shares",
+	}, s.handleListShares)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "get-document",
 		Method:      http.MethodGet,
 		Path:        "/documents/{id}",
@@ -323,6 +330,32 @@ func (s *Server) handleListDocuments(ctx context.Context, in *listDocumentsInput
 		dtos[i] = toDocumentSummary(d)
 	}
 	return &listDocumentsOutput{Body: dtos}, nil
+}
+
+// --- list-shares ---
+
+type listSharesInput struct {
+	ID string `path:"id"`
+}
+
+type listSharesOutput struct {
+	Body ShareDTO
+}
+
+func (s *Server) handleListShares(ctx context.Context, in *listSharesInput) (*listSharesOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	shares, err := s.svc.ListShares(ctx, id, pid)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return &listSharesOutput{Body: toShareDTO(shares)}, nil
 }
 
 // --- get-document ---
