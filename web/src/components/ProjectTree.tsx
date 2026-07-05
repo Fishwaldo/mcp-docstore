@@ -11,6 +11,7 @@ import {
   type ProjectDTO,
 } from "@/lib/api";
 import TagFilter from "@/components/TagFilter";
+import NewProjectDialog from "@/components/NewProjectDialog";
 
 type DocOrder = "title" | "recent";
 
@@ -34,10 +35,12 @@ function ProjectItem({
   projectId,
   projectName,
   order,
+  archived = false,
 }: {
   projectId: string;
   projectName: string;
   order: DocOrder;
+  archived?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -53,7 +56,7 @@ function ProjectItem({
   );
 
   return (
-    <div>
+    <div className={archived ? "opacity-60" : undefined}>
       <div className="flex w-full items-center gap-1.5 rounded-md hover:bg-accent">
         <button
           type="button"
@@ -144,10 +147,11 @@ export default function ProjectTree() {
   const [searchValue, setSearchValue] = useState("");
   const [order, setOrder] = useState<DocOrder>(() => getInitialDocOrder());
   const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
 
   const { data: projects, isLoading, isError } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => listProjects(),
+    queryKey: ["projects", showArchived],
+    queryFn: () => listProjects(showArchived),
   });
 
   const {
@@ -192,7 +196,21 @@ export default function ProjectTree() {
         >
           <Plus className="h-4 w-4" />
         </Link>
+        <NewProjectDialog />
       </div>
+
+      <button
+        type="button"
+        aria-pressed={showArchived}
+        onClick={() => setShowArchived((v) => !v)}
+        className={`self-start rounded-md border border-input px-2 py-1 text-xs ${
+          showArchived
+            ? "bg-accent text-foreground"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Show archived
+      </button>
 
       <div
         role="radiogroup"
@@ -243,6 +261,7 @@ export default function ProjectTree() {
               projectId={project.id}
               projectName={project.name}
               order={order}
+              archived={project.archived}
             />
           ))}
         </div>

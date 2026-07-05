@@ -3,12 +3,31 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ProjectTree from "@/components/ProjectTree";
-import { searchDocuments } from "@/lib/api";
+import { listProjects, searchDocuments } from "@/lib/api";
+
+const { ACTIVE_PROJECT, ARCHIVED_PROJECT } = vi.hoisted(() => ({
+  ACTIVE_PROJECT: {
+    id: "p1",
+    name: "Alpha Project",
+    description: "",
+    visibility: "org",
+    archived: false,
+  },
+  ARCHIVED_PROJECT: {
+    id: "p2",
+    name: "Old Project",
+    description: "",
+    visibility: "org",
+    archived: true,
+  },
+}));
 
 vi.mock("@/lib/api", () => ({
-  listProjects: vi.fn().mockResolvedValue([
-    { id: "p1", name: "Alpha Project", description: "", visibility: "org", archived: false },
-  ]),
+  listProjects: vi.fn((includeArchived?: boolean) =>
+    Promise.resolve(
+      includeArchived ? [ACTIVE_PROJECT, ARCHIVED_PROJECT] : [ACTIVE_PROJECT],
+    ),
+  ),
   listDocuments: vi.fn().mockResolvedValue([
     { id: "b", title: "Zeta", overview: "", tags: [], version: 1, updated_at: "2026-02-01T00:00:00Z" },
     { id: "a", title: "Alpha", overview: "", tags: [], version: 1, updated_at: "2026-01-01T00:00:00Z" },
@@ -156,5 +175,37 @@ describe("ProjectTree tag filter", () => {
       expect(screen.queryByRole("link", { name: "Matching Doc" })).not.toBeInTheDocument();
     });
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+  });
+});
+
+describe("ProjectTree show archived toggle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("hides archived projects by default and reveals them (dimmed) when toggled on", async () => {
+    render(<ProjectTree />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    });
+    expect(listProjects).toHaveBeenCalledWith(false);
+    expect(screen.queryByText("Old Project")).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: /show archived/i });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(listProjects).toHaveBeenCalledWith(true);
+      expect(screen.getByText("Old Project")).toBeInTheDocument();
+    });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    const archivedLink = screen.getByRole("link", { name: /Old Project/ });
+    const archivedRow = archivedLink.closest("[class*='opacity-60']");
+    expect(archivedRow).not.toBeNull();
   });
 });
