@@ -242,7 +242,7 @@ describe("deleteDocument", () => {
   it("DELETEs and resolves void", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(204, null));
     await expect(deleteDocument("d1")).resolves.toBeUndefined();
-    expect(mockFetch.mock.calls[0][1].method).toBe("DELETE");
+    expect((mockFetch.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
   });
 });
 

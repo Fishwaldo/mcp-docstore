@@ -70,7 +70,7 @@ describe("ProjectTree document ordering", () => {
   it("flips to Recent order (most-recently-updated first) on click", async () => {
     await renderExpanded();
 
-    fireEvent.click(screen.getByRole("button", { name: "Recent" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Recent" }));
 
     await waitFor(() => {
       const titles = docLinkTitles();

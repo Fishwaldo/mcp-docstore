@@ -69,6 +69,8 @@ export default function DocumentView() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["document", id] });
       queryClient.invalidateQueries({ queryKey: ["snapshots", id] });
+      // An edit can change tags, so refresh any active tag-filter results.
+      queryClient.invalidateQueries({ queryKey: ["docsByTags"] });
       setConflict(null);
       setSaveError(null);
       setMode("view");
@@ -88,7 +90,7 @@ export default function DocumentView() {
       setDeleteError(null);
       setDeleteDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["documents", doc!.project_id] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["docsByTags"] });
       navigate(`/projects/${doc!.project_id}`);
     },
     onError: (err: unknown) => {

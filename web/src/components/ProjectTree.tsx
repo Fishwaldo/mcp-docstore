@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus } from "lucide-react";
@@ -47,7 +47,10 @@ function ProjectItem({
     enabled: expanded,
   });
 
-  const sortedDocuments = documents ? sortDocuments(documents, order) : documents;
+  const sortedDocuments = useMemo(
+    () => (documents ? sortDocuments(documents, order) : documents),
+    [documents, order],
+  );
 
   return (
     <div>
@@ -150,6 +153,7 @@ export default function ProjectTree() {
   const {
     data: filteredHits,
     isLoading: filteredLoading,
+    isError: filteredError,
   } = useQuery({
     queryKey: ["docsByTags", activeTags],
     queryFn: () => searchDocuments({ q: "", tags: activeTags }),
@@ -190,11 +194,16 @@ export default function ProjectTree() {
         </Link>
       </div>
 
-      <div className="flex items-center gap-0.5 rounded-md border border-input p-0.5 text-xs">
+      <div
+        role="radiogroup"
+        aria-label="Document order"
+        className="flex items-center gap-0.5 rounded-md border border-input p-0.5 text-xs"
+      >
         <button
           type="button"
+          role="radio"
           onClick={() => handleOrderChange("title")}
-          aria-pressed={order === "title"}
+          aria-checked={order === "title"}
           className={`flex-1 rounded px-2 py-1 ${
             order === "title"
               ? "bg-accent text-foreground"
@@ -205,8 +214,9 @@ export default function ProjectTree() {
         </button>
         <button
           type="button"
+          role="radio"
           onClick={() => handleOrderChange("recent")}
-          aria-pressed={order === "recent"}
+          aria-checked={order === "recent"}
           className={`flex-1 rounded px-2 py-1 ${
             order === "recent"
               ? "bg-accent text-foreground"
@@ -241,7 +251,10 @@ export default function ProjectTree() {
           {filteredLoading && (
             <div className="px-2 py-2 text-xs text-muted-foreground">Filtering…</div>
           )}
-          {!filteredLoading && filteredHits?.length === 0 && (
+          {filteredError && (
+            <div className="px-2 py-2 text-xs text-destructive">Couldn&rsquo;t filter documents.</div>
+          )}
+          {!filteredLoading && !filteredError && filteredHits?.length === 0 && (
             <div className="px-2 py-2 text-xs text-muted-foreground">No documents match.</div>
           )}
           {!filteredLoading &&

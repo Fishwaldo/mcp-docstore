@@ -61,6 +61,10 @@ describe("ProjectView", () => {
     expect(screen.getByText("Org")).toBeInTheDocument();
     expect(screen.getByText("write")).toBeInTheDocument();
 
+    // documents load after the project resolves (query gated on !!project)
+    await waitFor(() => {
+      expect(screen.getByText("Doc One")).toBeInTheDocument();
+    });
     const link = screen.getByText("Doc One").closest("a");
     expect(link).toHaveAttribute("href", "/documents/d1");
   });
@@ -73,6 +77,36 @@ describe("ProjectView", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/not found/i)).toBeInTheDocument();
+    });
+  });
+
+  it("does not fetch documents when the project 404s", async () => {
+    vi.mocked(getProject).mockRejectedValue(new Error("API error 404: not found"));
+    vi.mocked(listDocuments).mockResolvedValue([]);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText(/not found/i)).toBeInTheDocument();
+    });
+    expect(listDocuments).not.toHaveBeenCalled();
+  });
+
+  it("shows an error when the document list fails to load", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "",
+      visibility: "org",
+      archived: false,
+      access: "read",
+    });
+    vi.mocked(listDocuments).mockRejectedValue(new Error("API error 500: boom"));
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn.t load documents/i)).toBeInTheDocument();
     });
   });
 });

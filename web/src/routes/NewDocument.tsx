@@ -34,7 +34,7 @@ export default function NewDocument() {
       }),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["documents", selectedProjectId] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["docsByTags"] });
       navigate(`/documents/${created.id}`);
     },
   });

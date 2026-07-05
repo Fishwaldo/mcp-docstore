@@ -15,10 +15,15 @@ export default function ProjectView() {
     enabled: !!id,
   });
 
-  const { data: documents } = useQuery({
+  const {
+    data: documents,
+    isError: documentsError,
+  } = useQuery({
     queryKey: ["documents", id],
     queryFn: () => listDocuments(id!),
-    enabled: !!id,
+    // Only fetch documents once the project has loaded — avoids a doomed second request
+    // when getProject 404s (cross-tenant / no access).
+    enabled: !!project,
   });
 
   if (projectLoading) {
@@ -70,7 +75,10 @@ export default function ProjectView() {
       <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
         Documents
       </h2>
-      {documents && documents.length === 0 && (
+      {documentsError && (
+        <p className="text-destructive">Couldn&rsquo;t load documents.</p>
+      )}
+      {!documentsError && documents && documents.length === 0 && (
         <p className="text-muted-foreground">No documents yet.</p>
       )}
       {documents && documents.length > 0 && (
