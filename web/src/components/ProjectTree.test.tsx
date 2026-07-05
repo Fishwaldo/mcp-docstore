@@ -208,4 +208,34 @@ describe("ProjectTree show archived toggle", () => {
     const archivedRow = archivedLink.closest("[class*='opacity-60']");
     expect(archivedRow).not.toBeNull();
   });
+
+  it("dims an archived project surfaced via the tag-filter path", async () => {
+    vi.mocked(searchDocuments).mockResolvedValue([
+      { document_id: "d1", project_id: "p1", title: "Matching Doc", overview: "", score: 1, snippet: "" },
+      { document_id: "d2", project_id: "p2", title: "Old Matching Doc", overview: "", score: 1, snippet: "" },
+    ]);
+
+    render(<ProjectTree />, { wrapper });
+
+    const toggle = await screen.findByRole("button", { name: /show archived/i });
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(screen.getByText("Old Project")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /filter by tag/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: "alpha" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "alpha" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: /Old Project/ })).toBeInTheDocument();
+    });
+
+    const archivedFilteredLink = screen.getByRole("link", { name: /Old Project/ });
+    const archivedFilteredRow = archivedFilteredLink.closest("[class*='opacity-60']");
+    expect(archivedFilteredRow).not.toBeNull();
+  });
 });

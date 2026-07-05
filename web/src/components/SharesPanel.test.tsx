@@ -165,6 +165,59 @@ describe("SharesPanel", () => {
     });
   });
 
+  it("clears a stale unresolved warning when a share is removed", async () => {
+    vi.mocked(listShares).mockResolvedValue({
+      users: [{ email: "a@x.com", permission: "read" }],
+      groups: [],
+    });
+    vi.mocked(addShares).mockResolvedValue({
+      shares: { users: [{ email: "a@x.com", permission: "read" }], groups: [] },
+      unresolved: ["b@x.com"],
+    });
+    vi.mocked(removeShares).mockResolvedValue(undefined);
+
+    render(<SharesPanel projectId="p1" />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("a@x.com")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), {
+      target: { value: "b@x.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn.t resolve.*b@x\.com/i)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /remove a@x.com/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/couldn.t resolve/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows an inline error when adding a share fails", async () => {
+    vi.mocked(listShares).mockResolvedValue({ users: [], groups: [] });
+    vi.mocked(addShares).mockRejectedValue(new Error("boom"));
+
+    render(<SharesPanel projectId="p1" />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText(/no shares yet/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), {
+      target: { value: "b@x.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn.t add share/i)).toBeInTheDocument();
+    });
+  });
+
   it("shows an error when removing a share fails", async () => {
     vi.mocked(listShares).mockResolvedValue({
       users: [{ email: "a@x.com", permission: "read" }],

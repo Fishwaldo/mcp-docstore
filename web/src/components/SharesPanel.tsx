@@ -28,6 +28,7 @@ export default function SharesPanel({ projectId }: { projectId: string }) {
       removeShares(projectId, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shares", projectId] });
+      setUnresolved([]);
     },
   });
 
@@ -59,7 +60,10 @@ export default function SharesPanel({ projectId }: { projectId: string }) {
         <button
           type="button"
           role="radio"
-          onClick={() => setKind("user")}
+          onClick={() => {
+            setKind("user");
+            setUnresolved([]);
+          }}
           aria-checked={kind === "user"}
           className={`rounded px-2 py-1 ${
             kind === "user"
@@ -72,7 +76,10 @@ export default function SharesPanel({ projectId }: { projectId: string }) {
         <button
           type="button"
           role="radio"
-          onClick={() => setKind("group")}
+          onClick={() => {
+            setKind("group");
+            setUnresolved([]);
+          }}
           aria-checked={kind === "group"}
           className={`rounded px-2 py-1 ${
             kind === "group"
@@ -141,7 +148,7 @@ export default function SharesPanel({ projectId }: { projectId: string }) {
       )}
 
       {unresolved.length > 0 && (
-        <p className="text-sm text-amber-600 dark:text-amber-500">
+        <p className="text-sm text-warning">
           Couldn&rsquo;t resolve: {unresolved.join(", ")}
         </p>
       )}

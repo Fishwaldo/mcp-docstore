@@ -114,7 +114,7 @@ function FilteredProjectItem({
   hits: SearchHitDTO[];
 }) {
   return (
-    <div>
+    <div className={project.archived ? "opacity-60" : undefined}>
       <div className="flex w-full items-center gap-1.5 rounded-md hover:bg-accent">
         <div className="flex shrink-0 items-center px-2 py-1.5 text-muted-foreground">
           <ChevronDown className="h-3.5 w-3.5 shrink-0" />

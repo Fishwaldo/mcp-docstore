@@ -3,7 +3,14 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ProjectView from "@/routes/ProjectView";
-import { getProject, listDocuments, updateProject, archiveProject, deleteProject } from "@/lib/api";
+import {
+  getProject,
+  listDocuments,
+  updateProject,
+  archiveProject,
+  unarchiveProject,
+  deleteProject,
+} from "@/lib/api";
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -312,6 +319,39 @@ describe("ProjectView", () => {
 
     await waitFor(() => {
       expect(updateProject).toHaveBeenCalledWith("p1", { visibility: "private" });
+    });
+  });
+
+  it("Unarchive calls unarchiveProject", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: true,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(unarchiveProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
+
+    await waitFor(() => {
+      expect(unarchiveProject).toHaveBeenCalledWith("p1");
     });
   });
 

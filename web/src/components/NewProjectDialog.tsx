@@ -57,6 +57,9 @@ export default function NewProjectDialog() {
           <Dialog.Title className="text-lg font-semibold text-foreground">
             New project
           </Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+            Create a new project. You&rsquo;ll be its owner.
+          </Dialog.Description>
 
           <div className="mt-4 space-y-3">
             <label className="block text-sm text-foreground">
