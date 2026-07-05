@@ -303,6 +303,56 @@ func TestListProjectShares(t *testing.T) {
 	require.Empty(t, dto.Groups)
 }
 
+func TestAddShares(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+	ctx := context.Background()
+	p, err := st.CreateProject(ctx, id, "Shared", "", "private")
+	require.NoError(t, err)
+	_, err = st.UpsertUser(ctx, id.TenantID, "api-share-c", "carol@acme.com", false)
+	require.NoError(t, err)
+
+	// Add a user share (write) for a known user.
+	body := map[string]any{"kind": "user", "principals": []string{"carol@acme.com"}, "permission": "write"}
+	rec := doJSON(t, srv, id, "POST", "/projects/"+p.ID.String()+"/shares", body)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var out struct {
+		Shares     ShareDTO `json:"shares"`
+		Unresolved []string `json:"unresolved"`
+	}
+	decodeJSON(t, rec, &out)
+	require.Len(t, out.Shares.Users, 1)
+	require.Equal(t, "carol@acme.com", out.Shares.Users[0].Email)
+	require.Equal(t, "write", out.Shares.Users[0].Permission)
+
+	// Unknown email → surfaced in unresolved, not an error.
+	bodyUnknown := map[string]any{"kind": "user", "principals": []string{"nobody@acme.com"}, "permission": "read"}
+	recU := doJSON(t, srv, id, "POST", "/projects/"+p.ID.String()+"/shares", bodyUnknown)
+	require.Equal(t, 200, recU.Code, recU.Body.String())
+	var outU struct {
+		Unresolved []string `json:"unresolved"`
+	}
+	decodeJSON(t, recU, &outU)
+	require.Contains(t, outU.Unresolved, "nobody@acme.com")
+
+	// Invalid permission → store ErrInvalid → 400.
+	bad := map[string]any{"kind": "user", "principals": []string{"carol@acme.com"}, "permission": "admin"}
+	recBad := doJSON(t, srv, id, "POST", "/projects/"+p.ID.String()+"/shares", bad)
+	require.Equal(t, 400, recBad.Code, recBad.Body.String())
+
+	// Invalid kind → 400 (web-layer validation).
+	badKind := map[string]any{"kind": "team", "principals": []string{"carol@acme.com"}, "permission": "read"}
+	recBadKind := doJSON(t, srv, id, "POST", "/projects/"+p.ID.String()+"/shares", badKind)
+	require.Equal(t, 400, recBadKind.Code, recBadKind.Body.String())
+
+	// A non-owner, non-admin member cannot manage shares → 404.
+	ten, _ := st.EnsureTenant(ctx, "acme", "Acme")
+	u2, _ := st.UpsertUser(ctx, ten.ID, "api-share-d", "dave@acme.com", false)
+	id2 := store.Identity{TenantID: ten.ID, UserID: u2.ID, Groups: []string{"eng"}}
+	recDenied := doJSON(t, srv, id2, "POST", "/projects/"+p.ID.String()+"/shares",
+		map[string]any{"kind": "user", "principals": []string{"carol@acme.com"}, "permission": "read"})
+	require.Equal(t, 404, recDenied.Code, recDenied.Body.String())
+}
+
 // --- get-section ---
 
 func TestGetSectionHappy(t *testing.T) {

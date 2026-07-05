@@ -63,6 +63,13 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleListShares)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "add-shares",
+		Method:      http.MethodPost,
+		Path:        "/projects/{id}/shares",
+		Summary:     "Add or update user/group shares on a project",
+	}, s.handleAddShares)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "get-document",
 		Method:      http.MethodGet,
 		Path:        "/documents/{id}",
@@ -356,6 +363,58 @@ func (s *Server) handleListShares(ctx context.Context, in *listSharesInput) (*li
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
 	return &listSharesOutput{Body: toShareDTO(shares)}, nil
+}
+
+// --- add-shares ---
+
+type shareMutationInput struct {
+	ID   string `path:"id"`
+	Body struct {
+		Kind       string   `json:"kind" doc:"\"user\" or \"group\""`
+		Principals []string `json:"principals" doc:"emails (kind=user) or group names (kind=group)"`
+		Permission string   `json:"permission" doc:"\"read\" or \"write\""`
+	}
+}
+
+type addSharesOutput struct {
+	Body struct {
+		Shares     ShareDTO `json:"shares"`
+		Unresolved []string `json:"unresolved"`
+	}
+}
+
+func (s *Server) handleAddShares(ctx context.Context, in *shareMutationInput) (*addSharesOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	var res *store.ShareResult
+	switch in.Body.Kind {
+	case "user":
+		res, err = s.svc.ShareUsers(ctx, id, pid, in.Body.Principals, in.Body.Permission)
+	case "group":
+		res, err = s.svc.ShareGroups(ctx, id, pid, in.Body.Principals, in.Body.Permission)
+	default:
+		return nil, huma.Error400BadRequest(`kind must be "user" or "group"`)
+	}
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	shares, err := s.svc.ListShares(ctx, id, pid)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	out := &addSharesOutput{}
+	out.Body.Shares = toShareDTO(shares)
+	out.Body.Unresolved = res.Unresolved
+	if out.Body.Unresolved == nil {
+		out.Body.Unresolved = []string{}
+	}
+	return out, nil
 }
 
 // --- get-document ---
