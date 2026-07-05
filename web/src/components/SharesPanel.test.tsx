@@ -127,7 +127,7 @@ describe("SharesPanel", () => {
       expect(screen.getByText(/no shares yet/i)).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByPlaceholderText(/email or group name/i), {
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), {
       target: { value: "b@x.com" },
     });
     fireEvent.click(screen.getByRole("radio", { name: /write/i }));
@@ -155,13 +155,33 @@ describe("SharesPanel", () => {
       expect(screen.getByText(/no shares yet/i)).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByPlaceholderText(/email or group name/i), {
+    fireEvent.change(screen.getByPlaceholderText(/email address/i), {
       target: { value: "b@x.com" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/couldn.t resolve.*b@x\.com/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows an error when removing a share fails", async () => {
+    vi.mocked(listShares).mockResolvedValue({
+      users: [{ email: "a@x.com", permission: "read" }],
+      groups: [],
+    });
+    vi.mocked(removeShares).mockRejectedValue(new Error("boom"));
+
+    render(<SharesPanel projectId="p1" />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("a@x.com")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /remove a@x.com/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn.t remove share/i)).toBeInTheDocument();
     });
   });
 });
