@@ -149,6 +149,14 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleUnarchiveProject)
 
 	huma.Register(api, huma.Operation{
+		OperationID:   "delete-project",
+		Method:        http.MethodDelete,
+		Path:          "/projects/{id}",
+		Summary:       "Delete a project and all its documents",
+		DefaultStatus: http.StatusNoContent,
+	}, s.handleDeleteProject)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "me",
 		Method:      http.MethodGet,
 		Path:        "/me",
@@ -732,6 +740,25 @@ func (s *Server) handleUnarchiveProject(ctx context.Context, in *projectActionIn
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
 	return s.projectDTOAfter(ctx, id, pid)
+}
+
+// --- delete-project ---
+
+type deleteProjectOutput struct{}
+
+func (s *Server) handleDeleteProject(ctx context.Context, in *projectActionInput) (*deleteProjectOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.svc.DeleteProject(ctx, id, pid); err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return &deleteProjectOutput{}, nil
 }
 
 // --- restore-snapshot ---

@@ -663,6 +663,18 @@ func TestArchiveUnarchiveProject(t *testing.T) {
 	require.False(t, un.Archived)
 }
 
+func TestDeleteProject(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	projectID, _ := seedProjectAndDoc(t, srv, id)
+
+	rec := doJSON(t, srv, id, "DELETE", "/projects/"+projectID, nil)
+	require.Equal(t, 204, rec.Code, rec.Body.String())
+
+	// Gone: a subsequent get is 404.
+	recGet := doGet(t, srv, id, "/projects/"+projectID)
+	require.Equal(t, 404, recGet.Code, recGet.Body.String())
+}
+
 func TestRestoreSnapshotStaleBaseVersionConflicts(t *testing.T) {
 	srv, _, id := newAPIServer(t)
 	_, docID := seedProjectAndDoc(t, srv, id)
