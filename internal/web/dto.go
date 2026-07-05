@@ -18,10 +18,12 @@ type ProjectDTO struct {
 	Visibility  string `json:"visibility"`
 	Archived    bool   `json:"archived"`
 	Access      string `json:"access,omitempty"`
+	CanManage   bool   `json:"can_manage"`
 }
 
-// toProjectDTO converts an ent.Project to ProjectDTO with the caller's access level.
-func toProjectDTO(p *ent.Project, access string) ProjectDTO {
+// toProjectDTO converts an ent.Project to ProjectDTO with the caller's access level and
+// management capability.
+func toProjectDTO(p *ent.Project, access string, canManage bool) ProjectDTO {
 	return ProjectDTO{
 		ID:          p.ID.String(),
 		Name:        p.Name,
@@ -29,6 +31,7 @@ func toProjectDTO(p *ent.Project, access string) ProjectDTO {
 		Visibility:  p.Visibility.String(),
 		Archived:    p.Archived,
 		Access:      access,
+		CanManage:   canManage,
 	}
 }
 

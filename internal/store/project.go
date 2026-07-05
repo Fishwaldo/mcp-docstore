@@ -108,13 +108,20 @@ func (s *Store) GetProjectWithAccess(ctx context.Context, id Identity, projectID
 	if err != nil {
 		return ProjectWithAccess{}, err
 	}
-	return ProjectWithAccess{Project: p, Access: acc}, nil
+	return ProjectWithAccess{Project: p, Access: acc, CanManage: canManage(p, id)}, nil
 }
 
 // ProjectWithAccess pairs a project with the caller's effective access level.
 type ProjectWithAccess struct {
-	Project *ent.Project
-	Access  Access
+	Project   *ent.Project
+	Access    Access
+	CanManage bool
+}
+
+// canManage reports whether id may manage p (rename/visibility/archive/delete/share):
+// tenant admins and the project owner. Requires p.Edges.Owner to be loaded.
+func canManage(p *ent.Project, id Identity) bool {
+	return id.IsAdmin || (p.Edges.Owner != nil && p.Edges.Owner.ID == id.UserID)
 }
 
 // ListProjectsWithAccess returns every project in the tenant that the caller can at least
@@ -140,7 +147,7 @@ func (s *Store) ListProjectsWithAccess(ctx context.Context, id Identity, include
 			continue
 		}
 		if acc := effectiveAccess(factsOf(p), id); acc > NoAccess {
-			out = append(out, ProjectWithAccess{Project: p, Access: acc})
+			out = append(out, ProjectWithAccess{Project: p, Access: acc, CanManage: canManage(p, id)})
 		}
 	}
 	return out, nil

@@ -187,6 +187,35 @@ func TestGetProjectIncludesAccessLevel(t *testing.T) {
 	require.Equal(t, "write", dto.Access)
 }
 
+func TestGetProjectCanManage(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+	projectID, _ := seedProjectAndDoc(t, srv, id) // org project owned by the caller
+
+	// Owner: can_manage true.
+	rec := doGet(t, srv, id, "/projects/"+projectID)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var owner ProjectDTO
+	decodeJSON(t, rec, &owner)
+	require.True(t, owner.CanManage)
+	require.Equal(t, "write", owner.Access)
+
+	// A different, non-admin member of the same tenant: org access grants write,
+	// but NOT can_manage.
+	ctx := context.Background()
+	ten, err := st.EnsureTenant(ctx, "acme", "Acme")
+	require.NoError(t, err)
+	u2, err := st.UpsertUser(ctx, ten.ID, "api-s2", "bob@acme.com", false)
+	require.NoError(t, err)
+	id2 := store.Identity{TenantID: ten.ID, UserID: u2.ID, Groups: []string{"eng"}}
+
+	rec2 := doGet(t, srv, id2, "/projects/"+projectID)
+	require.Equal(t, 200, rec2.Code, rec2.Body.String())
+	var member ProjectDTO
+	decodeJSON(t, rec2, &member)
+	require.Equal(t, "write", member.Access) // org membership
+	require.False(t, member.CanManage)       // but not owner/admin
+}
+
 // --- list-documents ---
 
 func TestListDocumentsHappy(t *testing.T) {

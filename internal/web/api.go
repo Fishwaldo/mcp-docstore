@@ -157,7 +157,7 @@ func (s *Server) handleListProjects(ctx context.Context, in *listProjectsInput) 
 	}
 	dtos := make([]ProjectDTO, len(projects))
 	for i, p := range projects {
-		dtos[i] = toProjectDTO(p.Project, p.Access.String())
+		dtos[i] = toProjectDTO(p.Project, p.Access.String(), p.CanManage)
 	}
 	return &listProjectsOutput{Body: dtos}, nil
 }
@@ -185,7 +185,7 @@ func (s *Server) handleGetProject(ctx context.Context, in *getProjectInput) (*ge
 	if err != nil {
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
-	return &getProjectOutput{Body: toProjectDTO(pa.Project, pa.Access.String())}, nil
+	return &getProjectOutput{Body: toProjectDTO(pa.Project, pa.Access.String(), pa.CanManage)}, nil
 }
 
 // --- list-documents ---
