@@ -309,6 +309,92 @@ describe("ProjectView", () => {
     });
   });
 
+  it("shows an error when archiveProject rejects", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(archiveProject).mockRejectedValue(new Error("API error 500: boom"));
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("API error 500: boom")).toBeInTheDocument();
+    });
+  });
+
+  it("shows an error when the org→private visibility update rejects", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(updateProject).mockRejectedValue(new Error("API error 500: boom"));
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Make private" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Make private" }));
+
+    expect(await screen.findByText(/revokes access/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, make private" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("API error 500: boom").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("disables the Edit Save button when the name input is emptied", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const nameInput = screen.getByRole("textbox", { name: /name/i });
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).not.toBeDisabled();
+
+    fireEvent.change(nameInput, { target: { value: "" } });
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.change(nameInput, { target: { value: "   " } });
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.change(nameInput, { target: { value: "Beta Project" } });
+    expect(saveButton).not.toBeDisabled();
+  });
+
   it("switching private→org updates without a warning", async () => {
     vi.mocked(getProject).mockResolvedValue({
       id: "p1",

@@ -20,10 +20,12 @@ export default function ProjectView() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [visibilityWarningOpen, setVisibilityWarningOpen] = useState(false);
+  const [visibilityError, setVisibilityError] = useState<string | null>(null);
 
   const {
     data: project,
@@ -66,6 +68,10 @@ export default function ProjectView() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["project", id] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setArchiveError(null);
+    },
+    onError: (err: unknown) => {
+      setArchiveError(err instanceof Error ? err.message : "Failed to update archive status.");
     },
   });
 
@@ -88,6 +94,10 @@ export default function ProjectView() {
       queryClient.invalidateQueries({ queryKey: ["project", id] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       setVisibilityWarningOpen(false);
+      setVisibilityError(null);
+    },
+    onError: (err: unknown) => {
+      setVisibilityError(err instanceof Error ? err.message : "Failed to update visibility.");
     },
   });
 
@@ -135,6 +145,7 @@ export default function ProjectView() {
   }
 
   function handleToggleVisibility() {
+    setVisibilityError(null);
     if (project!.visibility === "org") {
       setVisibilityWarningOpen(true);
     } else {
@@ -164,7 +175,7 @@ export default function ProjectView() {
             <button
               type="button"
               onClick={handleSave}
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || name.trim() === ""}
               className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               Save
@@ -240,6 +251,13 @@ export default function ProjectView() {
             Delete
           </button>
         </div>
+      )}
+
+      {archiveError && (
+        <p className="mb-4 text-sm text-destructive">{archiveError}</p>
+      )}
+      {visibilityError && (
+        <p className="mb-4 text-sm text-destructive">{visibilityError}</p>
       )}
 
       <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
@@ -331,6 +349,9 @@ export default function ProjectView() {
               Switching to private revokes access for every tenant member who isn&rsquo;t the
               owner or an explicit share — continue?
             </Dialog.Description>
+            {visibilityError && (
+              <p className="mt-2 text-sm text-destructive">{visibilityError}</p>
+            )}
             <div className="mt-4 flex justify-end gap-2">
               <Dialog.Close asChild>
                 <button
