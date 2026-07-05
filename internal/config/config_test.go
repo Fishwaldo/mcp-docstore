@@ -128,6 +128,34 @@ oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secre
 	require.Equal(t, 168*time.Hour, cfg.OAuth.RefreshTokenTTL)
 	require.Equal(t, "open", cfg.OAuth.Registration)
 	require.Equal(t, 1, cfg.OAuth.TrustedProxyCount)
+	require.NotNil(t, cfg.OAuth.EnableClientManagement)
+	require.True(t, *cfg.OAuth.EnableClientManagement) // RFC 7592 client management on by default
+}
+
+func TestLoadNormalizesTrailingSlashOnPublicURL(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com/"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, "https://docs.example.com", cfg.PublicURL) // no trailing slash → no "//documents/…"
+}
+
+func TestLoadClientManagementOptOut(t *testing.T) {
+	path := writeTemp(t, `
+public_url: "https://docs.example.com"
+bleve_index_path: "/tmp/idx.bleve"
+database: {driver: sqlite, dsn: "x"}
+oidc: {issuer: "https://idp.example.com", client_id: "test-client", client_secret: "test-secret"}
+oauth: {enable_client_management: false}
+`)
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.OAuth.EnableClientManagement)
+	require.False(t, *cfg.OAuth.EnableClientManagement)
 }
 
 func TestMaxRequestBytesDefaults(t *testing.T) {

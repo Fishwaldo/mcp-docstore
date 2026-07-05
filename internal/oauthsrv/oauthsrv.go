@@ -54,6 +54,11 @@ type Config struct {
 	RegistrationOpen      bool     // true: open public DCR; false: allowlist below
 	RegistrationAllowlist []string // exact-match HTTPS redirect URIs admitted to DCR when !RegistrationOpen
 
+	// EnableClientManagement turns on the RFC 7592 client-management endpoints so DCR
+	// responses carry a registration_access_token + registration_client_uri and clients can
+	// update/delete their own registration. Sourced from oauth.enable_client_management.
+	EnableClientManagement bool
+
 	TrustProxy        bool
 	TrustedProxyCount int
 
@@ -127,6 +132,7 @@ func New(ctx context.Context, cfg Config, st storage.Combined, km *KeyMaterial, 
 		AllowPublicClientRegistration:         cfg.RegistrationOpen,
 		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirects,
 		TrustedPublicRegistrationRedirectURIs: trustedRedirectURIs,
+		EnableClientManagementEndpoint:        cfg.EnableClientManagement,
 		// RFC 8252 §7.3: native apps (Claude Code's ephemeral loopback callback among them)
 		// register redirect URIs of the form http://127.0.0.1:PORT/... or
 		// http://localhost:PORT/..., where the port is chosen at runtime. Without this the

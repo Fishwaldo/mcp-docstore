@@ -55,6 +55,9 @@ oauth:
   trust_proxy: false          # trust proxy-supplied X-Forwarded-* headers for client IP/scheme
   trusted_proxy_count: 1      # number of trusted proxy hops to peel off when trust_proxy is true
   cookie_secure: true         # secure (HTTPS-only) consent cookie; default true. Set false ONLY for local http development
+  enable_client_management: true  # RFC 7592 client management (GET/PUT/DELETE /oauth/register/{id}); default true.
+                                  # DCR responses then carry registration_access_token + registration_client_uri so a
+                                  # client can update/delete its own registration instead of orphaning a new one each time.
   sweep_interval: 1h          # interval to reap expired oauth store rows (auth codes, refresh tokens, revocations)
   # allow_private_ip_redirects: set true ONLY when this server's public_url (and thus the SPA
   # callback) or its OAuth clients live on an internal network whose hostnames resolve to

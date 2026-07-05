@@ -148,6 +148,7 @@ func Run(ctx context.Context, args []string, logger *slog.Logger) error {
 		RefreshTokenTTL:         cfg.OAuth.RefreshTokenTTL,
 		RegistrationOpen:        cfg.OAuth.Registration == "open",
 		RegistrationAllowlist:   cfg.OAuth.RegistrationAllowlist,
+		EnableClientManagement:  cfg.OAuth.EnableClientManagement != nil && *cfg.OAuth.EnableClientManagement,
 		TrustProxy:              cfg.OAuth.TrustProxy,
 		TrustedProxyCount:       cfg.OAuth.TrustedProxyCount,
 		CookieSecure:            cookieSecure,

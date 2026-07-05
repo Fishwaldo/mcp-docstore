@@ -113,6 +113,12 @@ type OAuth struct {
 	// only concerns the upstream IdP: a public upstream with a private-IP PublicURL sets this
 	// but not that.
 	AllowPrivateIPRedirects bool `mapstructure:"allow_private_ip_redirects"`
+	// EnableClientManagement turns on the RFC 7592 dynamic-client-management endpoints
+	// (GET/PUT/DELETE /oauth/register/{client_id}). When on, DCR responses also carry a
+	// registration_access_token + registration_client_uri, letting a client update or delete
+	// its own registration — so re-registration can clean up instead of orphaning a new
+	// client each time. Pointer so an unset value defaults to true; set false to opt out.
+	EnableClientManagement *bool `mapstructure:"enable_client_management"`
 }
 
 // Logging configures the slog output. Level is debug|info|warn|error; Format is json|text.
@@ -180,6 +186,9 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) normalize() {
+	// A trailing slash on public_url would double up when concatenated (e.g. web_url
+	// "{public_url}/documents/{id}" or the LocalVerifier audiences "{public_url}/mcp").
+	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 	for i := range c.Tenants {
 		m := &c.Tenants[i].Match
 		for j, d := range m.Domains {
@@ -203,6 +212,10 @@ func (c *Config) applyDefaults() {
 	if c.OAuth.CookieSecure == nil {
 		secure := true
 		c.OAuth.CookieSecure = &secure
+	}
+	if c.OAuth.EnableClientManagement == nil {
+		on := true
+		c.OAuth.EnableClientManagement = &on
 	}
 }
 

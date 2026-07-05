@@ -72,7 +72,8 @@ func newMountTestService(t *testing.T, registrationOpen bool) *Service {
 
 	cfg := baseConfig(issuerURL, rootCAs, true)
 	cfg.RegistrationOpen = registrationOpen
-	cfg.CookieSecure = false // tests run over plain http.Client, not TLS
+	cfg.CookieSecure = false          // tests run over plain http.Client, not TLS
+	cfg.EnableClientManagement = true // production default (RFC 7592)
 
 	svc, err := New(context.Background(), cfg, st, km, entc, slog.New(slog.DiscardHandler))
 	require.NoError(t, err)
@@ -413,4 +414,14 @@ func TestMount_RegisterPassesThroughInOpenMode(t *testing.T) {
 	defer resp.Body.Close()
 
 	require.Contains(t, []int{http.StatusOK, http.StatusCreated}, resp.StatusCode)
+
+	// With client management enabled (production default), DCR responses carry the RFC 7592
+	// fields so a client can manage/delete its own registration instead of orphaning a new
+	// one on every re-register.
+	var reg map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&reg))
+	require.NotEmpty(t, reg["client_id"])
+	require.NotZero(t, reg["client_id_issued_at"])
+	require.NotEmpty(t, reg["registration_access_token"], "RFC 7592 registration_access_token must be present")
+	require.NotEmpty(t, reg["registration_client_uri"], "RFC 7592 registration_client_uri must be present")
 }

@@ -128,21 +128,26 @@ func (s *Store) ListTags(ctx context.Context, id Identity) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(projects) == 0 {
+		return []string{}, nil
+	}
+	ids := make([]uuid.UUID, len(projects))
+	for i, pa := range projects {
+		ids[i] = pa.Project.ID
+	}
+	docs, err := s.client.Document.Query().
+		Where(
+			document.TenantIDEQ(id.TenantID),
+			document.HasProjectWith(project.IDIn(ids...)),
+		).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
 	set := make(map[string]struct{})
-	for _, pa := range projects {
-		docs, err := s.client.Document.Query().
-			Where(
-				document.TenantIDEQ(id.TenantID),
-				document.HasProjectWith(project.IDEQ(pa.Project.ID)),
-			).
-			All(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range docs {
-			for _, t := range d.Tags {
-				set[t] = struct{}{}
-			}
+	for _, d := range docs {
+		for _, t := range d.Tags {
+			set[t] = struct{}{}
 		}
 	}
 	tags := make([]string, 0, len(set))
