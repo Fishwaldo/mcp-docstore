@@ -34,6 +34,14 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleGetProject)
 
 	huma.Register(api, huma.Operation{
+		OperationID:   "create-project",
+		Method:        http.MethodPost,
+		Path:          "/projects",
+		Summary:       "Create a project",
+		DefaultStatus: http.StatusCreated,
+	}, s.handleCreateProject)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "list-documents",
 		Method:      http.MethodGet,
 		Path:        "/projects/{id}/documents",
@@ -186,6 +194,38 @@ func (s *Server) handleGetProject(ctx context.Context, in *getProjectInput) (*ge
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
 	return &getProjectOutput{Body: toProjectDTO(pa.Project, pa.Access.String(), pa.CanManage)}, nil
+}
+
+// --- create-project ---
+
+type createProjectInput struct {
+	Body struct {
+		Name        string `json:"name" minLength:"1"`
+		Description string `json:"description,omitempty"`
+		Visibility  string `json:"visibility"`
+	}
+}
+
+type createProjectOutput struct {
+	Body ProjectDTO
+}
+
+func (s *Server) handleCreateProject(ctx context.Context, in *createProjectInput) (*createProjectOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	p, err := s.svc.CreateProject(ctx, id, in.Body.Name, in.Body.Description, in.Body.Visibility)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	// Re-fetch to build a DTO with the caller's access + can_manage consistently (the
+	// created entity may not carry the Owner edge). The creator is the owner.
+	pa, err := s.svc.GetProjectWithAccess(ctx, id, p.ID)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return &createProjectOutput{Body: toProjectDTO(pa.Project, pa.Access.String(), pa.CanManage)}, nil
 }
 
 // --- list-documents ---

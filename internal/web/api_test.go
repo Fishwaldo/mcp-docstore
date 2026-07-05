@@ -216,6 +216,27 @@ func TestGetProjectCanManage(t *testing.T) {
 	require.False(t, member.CanManage)       // but not owner/admin
 }
 
+func TestCreateProject(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+
+	body := map[string]any{"name": "New Project", "description": "d", "visibility": "private"}
+	rec := doJSON(t, srv, id, "POST", "/projects", body)
+	require.Equal(t, 201, rec.Code, rec.Body.String())
+
+	var dto ProjectDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, "New Project", dto.Name)
+	require.Equal(t, "private", dto.Visibility)
+	require.Equal(t, "write", dto.Access)
+	require.True(t, dto.CanManage) // creator is owner
+	require.NotEmpty(t, dto.ID)
+
+	// Invalid visibility → 400.
+	bad := map[string]any{"name": "X", "visibility": "public"}
+	recBad := doJSON(t, srv, id, "POST", "/projects", bad)
+	require.Equal(t, 400, recBad.Code, recBad.Body.String())
+}
+
 // --- list-documents ---
 
 func TestListDocumentsHappy(t *testing.T) {
