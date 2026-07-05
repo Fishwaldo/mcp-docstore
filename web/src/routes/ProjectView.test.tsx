@@ -3,7 +3,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ProjectView from "@/routes/ProjectView";
-import { getProject, listDocuments, updateProject, archiveProject } from "@/lib/api";
+import { getProject, listDocuments, updateProject, archiveProject, deleteProject } from "@/lib/api";
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -14,6 +14,7 @@ vi.mock("@/lib/api", async () => {
     updateProject: vi.fn(),
     archiveProject: vi.fn(),
     unarchiveProject: vi.fn(),
+    deleteProject: vi.fn(),
   };
 });
 
@@ -23,6 +24,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={["/projects/p1"]}>
         <Routes>
+          <Route path="/" element={<div>Home page</div>} />
           <Route path="/projects/:id" element={children} />
           <Route path="/documents/:id" element={<div>Document page</div>} />
         </Routes>
@@ -227,5 +229,117 @@ describe("ProjectView", () => {
     await waitFor(() => {
       expect(archiveProject).toHaveBeenCalledWith("p1");
     });
+  });
+
+  it("Delete stays disabled until the project name is typed, then calls deleteProject", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(deleteProject).mockResolvedValue(undefined);
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    const confirmInput = await screen.findByRole("textbox", { name: /project name/i });
+    const deleteButton = screen.getByRole("button", { name: "Yes, delete" });
+    expect(deleteButton).toBeDisabled();
+
+    fireEvent.change(confirmInput, { target: { value: "wrong name" } });
+    expect(deleteButton).toBeDisabled();
+
+    fireEvent.change(confirmInput, { target: { value: "Alpha Project" } });
+    expect(deleteButton).not.toBeDisabled();
+
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => {
+      expect(deleteProject).toHaveBeenCalledWith("p1");
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Home page")).toBeInTheDocument();
+    });
+  });
+
+  it("switching org→private shows a revoke warning before updating", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(updateProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "private",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Make private" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Make private" }));
+
+    expect(await screen.findByText(/revokes access/i)).toBeInTheDocument();
+    expect(updateProject).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Yes, make private" }));
+
+    await waitFor(() => {
+      expect(updateProject).toHaveBeenCalledWith("p1", { visibility: "private" });
+    });
+  });
+
+  it("switching private→org updates without a warning", async () => {
+    vi.mocked(getProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "private",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(updateProject).mockResolvedValue({
+      id: "p1",
+      name: "Alpha Project",
+      description: "desc",
+      visibility: "org",
+      archived: false,
+      access: "write",
+      can_manage: true,
+    });
+
+    render(<ProjectView />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Make org" })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Make org" }));
+
+    await waitFor(() => {
+      expect(updateProject).toHaveBeenCalledWith("p1", { visibility: "org" });
+    });
+    expect(screen.queryByText(/revokes access/i)).not.toBeInTheDocument();
   });
 });

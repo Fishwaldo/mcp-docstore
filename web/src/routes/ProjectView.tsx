@@ -1,22 +1,29 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import * as Dialog from "@radix-ui/react-dialog";
 import {
   getProject,
   listDocuments,
   updateProject,
   archiveProject,
   unarchiveProject,
+  deleteProject,
 } from "@/lib/api";
 
 export default function ProjectView() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [visibilityWarningOpen, setVisibilityWarningOpen] = useState(false);
 
   const {
     data: project,
@@ -62,6 +69,28 @@ export default function ProjectView() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteProject(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setDeleteDialogOpen(false);
+      navigate("/");
+    },
+    onError: (err: unknown) => {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete project.");
+    },
+  });
+
+  const visibilityMutation = useMutation({
+    mutationFn: (visibility: "org" | "private") =>
+      updateProject(id!, { visibility }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", id] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setVisibilityWarningOpen(false);
+    },
+  });
+
   if (projectLoading) {
     return (
       <div className="p-8 space-y-4 animate-pulse">
@@ -97,6 +126,20 @@ export default function ProjectView() {
 
   function handleSave() {
     saveMutation.mutate({ name, description });
+  }
+
+  function openDeleteDialog() {
+    setDeleteConfirmText("");
+    setDeleteError(null);
+    setDeleteDialogOpen(true);
+  }
+
+  function handleToggleVisibility() {
+    if (project!.visibility === "org") {
+      setVisibilityWarningOpen(true);
+    } else {
+      visibilityMutation.mutate("org");
+    }
   }
 
   return (
@@ -165,7 +208,7 @@ export default function ProjectView() {
       </div>
 
       {canManage && !editing && (
-        <div className="flex gap-2 mb-8">
+        <div className="flex flex-wrap gap-2 mb-8">
           <button
             type="button"
             onClick={startEdit}
@@ -180,6 +223,21 @@ export default function ProjectView() {
             className="inline-flex items-center justify-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
           >
             {project.archived ? "Unarchive" : "Archive"}
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleVisibility}
+            disabled={visibilityMutation.isPending}
+            className="inline-flex items-center justify-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {project.visibility === "org" ? "Make private" : "Make org"}
+          </button>
+          <button
+            type="button"
+            onClick={openDeleteDialog}
+            className="ml-auto inline-flex items-center justify-center rounded-md border border-destructive/50 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
+          >
+            Delete
           </button>
         </div>
       )}
@@ -210,6 +268,90 @@ export default function ProjectView() {
           ))}
         </ul>
       )}
+
+      <Dialog.Root
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setDeleteError(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+            <Dialog.Title className="text-lg font-semibold text-foreground">
+              Delete project?
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+              This permanently deletes &ldquo;{project.name}&rdquo; and all of its documents.
+              This action cannot be undone.
+            </Dialog.Description>
+            <label className="mt-4 block text-sm text-foreground">
+              Type <span className="font-semibold">{project.name}</span> to confirm.
+              <input
+                aria-label="Project name"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+              />
+            </label>
+            {deleteError && (
+              <p className="mt-2 text-sm text-destructive">{deleteError}</p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending || deleteConfirmText !== project.name}
+                className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                Yes, delete
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={visibilityWarningOpen} onOpenChange={setVisibilityWarningOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-background p-6 shadow-lg">
+            <Dialog.Title className="text-lg font-semibold text-foreground">
+              Switch to private?
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+              Switching to private revokes access for every tenant member who isn&rsquo;t the
+              owner or an explicit share — continue?
+            </Dialog.Description>
+            <div className="mt-4 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={() => visibilityMutation.mutate("private")}
+                disabled={visibilityMutation.isPending}
+                className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                Yes, make private
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
