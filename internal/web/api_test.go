@@ -353,6 +353,28 @@ func TestAddShares(t *testing.T) {
 	require.Equal(t, 404, recDenied.Code, recDenied.Body.String())
 }
 
+func TestRemoveShares(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+	ctx := context.Background()
+	p, err := st.CreateProject(ctx, id, "Shared", "", "private")
+	require.NoError(t, err)
+	_, err = st.UpsertUser(ctx, id.TenantID, "api-share-e", "erin@acme.com", false)
+	require.NoError(t, err)
+	_, err = st.ShareProjectUsers(ctx, id, p.ID, []string{"erin@acme.com"}, "read")
+	require.NoError(t, err)
+
+	body := map[string]any{"kind": "user", "principals": []string{"erin@acme.com"}}
+	rec := doJSON(t, srv, id, "DELETE", "/projects/"+p.ID.String()+"/shares", body)
+	require.Equal(t, 204, rec.Code, rec.Body.String())
+
+	// Gone.
+	recGet := doGet(t, srv, id, "/projects/"+p.ID.String()+"/shares")
+	require.Equal(t, 200, recGet.Code, recGet.Body.String())
+	var dto ShareDTO
+	decodeJSON(t, recGet, &dto)
+	require.Empty(t, dto.Users)
+}
+
 // --- get-section ---
 
 func TestGetSectionHappy(t *testing.T) {
@@ -544,7 +566,10 @@ func doJSON(t *testing.T, srv *Server, id store.Identity, method, path string, b
 		}
 		return api.PostCtx(ctx, path, body)
 	case http.MethodDelete:
-		return api.DeleteCtx(ctx, path)
+		if body == nil {
+			return api.DeleteCtx(ctx, path)
+		}
+		return api.DeleteCtx(ctx, path, body)
 	default:
 		t.Fatalf("doJSON: unsupported method %s", method)
 		return nil

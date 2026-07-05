@@ -70,6 +70,14 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleAddShares)
 
 	huma.Register(api, huma.Operation{
+		OperationID:   "remove-shares",
+		Method:        http.MethodDelete,
+		Path:          "/projects/{id}/shares",
+		Summary:       "Remove user/group shares from a project",
+		DefaultStatus: http.StatusNoContent,
+	}, s.handleRemoveShares)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "get-document",
 		Method:      http.MethodGet,
 		Path:        "/documents/{id}",
@@ -415,6 +423,41 @@ func (s *Server) handleAddShares(ctx context.Context, in *shareMutationInput) (*
 		out.Body.Unresolved = []string{}
 	}
 	return out, nil
+}
+
+// --- remove-shares ---
+
+type removeSharesInput struct {
+	ID   string `path:"id"`
+	Body struct {
+		Kind       string   `json:"kind" doc:"\"user\" or \"group\""`
+		Principals []string `json:"principals"`
+	}
+}
+
+type removeSharesOutput struct{}
+
+func (s *Server) handleRemoveShares(ctx context.Context, in *removeSharesInput) (*removeSharesOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	switch in.Body.Kind {
+	case "user":
+		err = s.svc.UnshareUsers(ctx, id, pid, in.Body.Principals)
+	case "group":
+		err = s.svc.UnshareGroups(ctx, id, pid, in.Body.Principals)
+	default:
+		return nil, huma.Error400BadRequest(`kind must be "user" or "group"`)
+	}
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return &removeSharesOutput{}, nil
 }
 
 // --- get-document ---
