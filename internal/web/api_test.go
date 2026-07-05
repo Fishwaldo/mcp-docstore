@@ -260,6 +260,22 @@ func TestUpdateProject(t *testing.T) {
 	require.Equal(t, 404, recDenied.Code, recDenied.Body.String())
 }
 
+func TestUpdateProjectNameOnlyPreservesDescription(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+	ctx := context.Background()
+	p, err := st.CreateProject(ctx, id, "P", "keep me", "org")
+	require.NoError(t, err)
+
+	body := map[string]any{"name": "Renamed"}
+	rec := doJSON(t, srv, id, "PATCH", "/projects/"+p.ID.String(), body)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	var dto ProjectDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, "Renamed", dto.Name)
+	require.Equal(t, "keep me", dto.Description)
+}
+
 // --- list-documents ---
 
 func TestListDocumentsHappy(t *testing.T) {
@@ -373,6 +389,46 @@ func TestRemoveShares(t *testing.T) {
 	var dto ShareDTO
 	decodeJSON(t, recGet, &dto)
 	require.Empty(t, dto.Users)
+}
+
+func TestGroupSharesAddAndRemoveRoundTrip(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+	ctx := context.Background()
+	p, err := st.CreateProject(ctx, id, "GroupShared", "", "private")
+	require.NoError(t, err)
+
+	addBody := map[string]any{"kind": "group", "principals": []string{"engineers"}, "permission": "read"}
+	rec := doJSON(t, srv, id, "POST", "/projects/"+p.ID.String()+"/shares", addBody)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+
+	recGet := doGet(t, srv, id, "/projects/"+p.ID.String()+"/shares")
+	require.Equal(t, 200, recGet.Code, recGet.Body.String())
+	var dto ShareDTO
+	decodeJSON(t, recGet, &dto)
+	require.Len(t, dto.Groups, 1)
+	require.Equal(t, "engineers", dto.Groups[0].Group)
+	require.Equal(t, "read", dto.Groups[0].Permission)
+
+	removeBody := map[string]any{"kind": "group", "principals": []string{"engineers"}}
+	recRemove := doJSON(t, srv, id, "DELETE", "/projects/"+p.ID.String()+"/shares", removeBody)
+	require.Equal(t, 204, recRemove.Code, recRemove.Body.String())
+
+	recGet2 := doGet(t, srv, id, "/projects/"+p.ID.String()+"/shares")
+	require.Equal(t, 200, recGet2.Code, recGet2.Body.String())
+	var dto2 ShareDTO
+	decodeJSON(t, recGet2, &dto2)
+	require.Empty(t, dto2.Groups)
+}
+
+func TestRemoveSharesInvalidKindReturns400(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+	ctx := context.Background()
+	p, err := st.CreateProject(ctx, id, "InvalidKind", "", "private")
+	require.NoError(t, err)
+
+	body := map[string]any{"kind": "team", "principals": []string{"x"}}
+	rec := doJSON(t, srv, id, "DELETE", "/projects/"+p.ID.String()+"/shares", body)
+	require.Equal(t, 400, rec.Code, rec.Body.String())
 }
 
 // --- get-section ---
