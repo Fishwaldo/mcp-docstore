@@ -9,7 +9,14 @@ import (
 
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 )
+
+// markdownRenderer parses GitHub Flavored Markdown — tables, strikethrough, task
+// lists, and autolinks — which the documents rely on. goldmark.Markdown is safe for
+// concurrent use, so it is built once and shared. Its HTML output is always passed
+// through bluemonday before reaching the browser (see renderMarkdown).
+var markdownRenderer = goldmark.New(goldmark.WithExtensions(extension.GFM))
 
 // sanitizeSnippet keeps only <mark> highlight tags from a Bleve search snippet
 // and escapes everything else, preventing indexed document content from injecting
@@ -29,7 +36,7 @@ func sanitizeSnippet(s string) string {
 // single trusted render path; the browser only ever receives the output of this function.
 func renderMarkdown(md string) (string, error) {
 	var buf bytes.Buffer
-	if err := goldmark.Convert([]byte(md), &buf); err != nil {
+	if err := markdownRenderer.Convert([]byte(md), &buf); err != nil {
 		return "", err
 	}
 

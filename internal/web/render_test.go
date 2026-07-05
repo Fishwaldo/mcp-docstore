@@ -6,6 +6,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRenderMarkdownRendersGFMTables(t *testing.T) {
+	md := "| Setting | Value |\n|---|---|\n| Cores | 8 |\n"
+	html, err := renderMarkdown(md)
+	require.NoError(t, err)
+	require.Contains(t, html, "<table")
+	require.Contains(t, html, "<th")
+	require.Contains(t, html, "<td")
+	require.Contains(t, html, "Cores")
+	require.NotContains(t, html, "|---|") // the raw table delimiter must not leak through
+}
+
+func TestRenderMarkdownRendersGFMStrikethrough(t *testing.T) {
+	html, err := renderMarkdown("~~gone~~")
+	require.NoError(t, err)
+	require.Contains(t, html, "<del")
+}
+
 func TestRenderMarkdownStripsScriptAndEvents(t *testing.T) {
 	html, err := renderMarkdown("# Hi\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>")
 	require.NoError(t, err)
