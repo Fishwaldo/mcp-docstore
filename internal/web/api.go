@@ -135,6 +135,20 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleRestoreSnapshot)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "archive-project",
+		Method:      http.MethodPost,
+		Path:        "/projects/{id}/archive",
+		Summary:     "Archive a project (hide from listings; reversible)",
+	}, s.handleArchiveProject)
+
+	huma.Register(api, huma.Operation{
+		OperationID: "unarchive-project",
+		Method:      http.MethodPost,
+		Path:        "/projects/{id}/unarchive",
+		Summary:     "Unarchive a project",
+	}, s.handleUnarchiveProject)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "me",
 		Method:      http.MethodGet,
 		Path:        "/me",
@@ -667,6 +681,57 @@ func (s *Server) handleDeleteDocument(ctx context.Context, in *deleteDocumentInp
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
 	return &deleteDocumentOutput{}, nil
+}
+
+// --- archive/unarchive-project ---
+
+type projectActionInput struct {
+	ID string `path:"id"`
+}
+
+type projectActionOutput struct {
+	Body ProjectDTO
+}
+
+// projectDTOAfter re-fetches a project's DTO after a mutation that doesn't itself return
+// the updated entity (archive/unarchive/delete all just return error). An archived project
+// stays reachable by id via GetProjectWithAccess, so this works for the archive path too.
+func (s *Server) projectDTOAfter(ctx context.Context, id store.Identity, pid uuid.UUID) (*projectActionOutput, error) {
+	pa, err := s.svc.GetProjectWithAccess(ctx, id, pid)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return &projectActionOutput{Body: toProjectDTO(pa.Project, pa.Access.String(), pa.CanManage)}, nil
+}
+
+func (s *Server) handleArchiveProject(ctx context.Context, in *projectActionInput) (*projectActionOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.svc.ArchiveProject(ctx, id, pid); err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return s.projectDTOAfter(ctx, id, pid)
+}
+
+func (s *Server) handleUnarchiveProject(ctx context.Context, in *projectActionInput) (*projectActionOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.svc.UnarchiveProject(ctx, id, pid); err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return s.projectDTOAfter(ctx, id, pid)
 }
 
 // --- restore-snapshot ---

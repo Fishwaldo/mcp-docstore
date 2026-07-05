@@ -465,6 +465,9 @@ func doJSON(t *testing.T, srv *Server, id store.Identity, method, path string, b
 	case http.MethodPatch:
 		return api.PatchCtx(ctx, path, body)
 	case http.MethodPost:
+		if body == nil {
+			return api.PostCtx(ctx, path)
+		}
 		return api.PostCtx(ctx, path, body)
 	case http.MethodDelete:
 		return api.DeleteCtx(ctx, path)
@@ -639,6 +642,25 @@ func TestRestoreSnapshotFullRestoresMetadata(t *testing.T) {
 	var dto DocumentDTO
 	decodeJSON(t, rec, &dto)
 	require.Equal(t, []string{"seed", "status:draft"}, dto.Tags) // v1 tags restored
+}
+
+// --- archive/unarchive-project ---
+
+func TestArchiveUnarchiveProject(t *testing.T) {
+	srv, _, id := newAPIServer(t)
+	projectID, _ := seedProjectAndDoc(t, srv, id)
+
+	rec := doJSON(t, srv, id, "POST", "/projects/"+projectID+"/archive", nil)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var arch ProjectDTO
+	decodeJSON(t, rec, &arch)
+	require.True(t, arch.Archived)
+
+	rec2 := doJSON(t, srv, id, "POST", "/projects/"+projectID+"/unarchive", nil)
+	require.Equal(t, 200, rec2.Code, rec2.Body.String())
+	var un ProjectDTO
+	decodeJSON(t, rec2, &un)
+	require.False(t, un.Archived)
 }
 
 func TestRestoreSnapshotStaleBaseVersionConflicts(t *testing.T) {
