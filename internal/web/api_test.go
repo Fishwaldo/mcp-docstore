@@ -237,6 +237,29 @@ func TestCreateProject(t *testing.T) {
 	require.Equal(t, 400, recBad.Code, recBad.Body.String())
 }
 
+// --- update-project ---
+
+func TestUpdateProject(t *testing.T) {
+	srv, st, id := newAPIServer(t)
+	projectID, _ := seedProjectAndDoc(t, srv, id)
+
+	newName := "Renamed"
+	body := map[string]any{"name": newName}
+	rec := doJSON(t, srv, id, "PATCH", "/projects/"+projectID, body)
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	var dto ProjectDTO
+	decodeJSON(t, rec, &dto)
+	require.Equal(t, newName, dto.Name)
+
+	// A non-owner, non-admin member cannot manage → existence-hidden as 404.
+	ctx := context.Background()
+	ten, _ := st.EnsureTenant(ctx, "acme", "Acme")
+	u2, _ := st.UpsertUser(ctx, ten.ID, "api-s3", "carol@acme.com", false)
+	id2 := store.Identity{TenantID: ten.ID, UserID: u2.ID, Groups: []string{"eng"}}
+	recDenied := doJSON(t, srv, id2, "PATCH", "/projects/"+projectID, map[string]any{"name": "Nope"})
+	require.Equal(t, 404, recDenied.Code, recDenied.Body.String())
+}
+
 // --- list-documents ---
 
 func TestListDocumentsHappy(t *testing.T) {

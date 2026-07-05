@@ -42,6 +42,13 @@ func (s *Server) registerAPI(api huma.API) {
 	}, s.handleCreateProject)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "update-project",
+		Method:      http.MethodPatch,
+		Path:        "/projects/{id}",
+		Summary:     "Update a project's name, description, or visibility",
+	}, s.handleUpdateProject)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "list-documents",
 		Method:      http.MethodGet,
 		Path:        "/projects/{id}/documents",
@@ -226,6 +233,44 @@ func (s *Server) handleCreateProject(ctx context.Context, in *createProjectInput
 		return nil, huma.NewError(httpStatusForError(err), err.Error())
 	}
 	return &createProjectOutput{Body: toProjectDTO(pa.Project, pa.Access.String(), pa.CanManage)}, nil
+}
+
+// --- update-project ---
+
+type updateProjectInput struct {
+	ID   string `path:"id"`
+	Body struct {
+		Name        *string `json:"name,omitempty"`
+		Description *string `json:"description,omitempty"`
+		Visibility  *string `json:"visibility,omitempty"`
+	}
+}
+
+type updateProjectOutput struct {
+	Body ProjectDTO
+}
+
+func (s *Server) handleUpdateProject(ctx context.Context, in *updateProjectInput) (*updateProjectOutput, error) {
+	id, ok := IdentityFromContext(ctx)
+	if !ok {
+		return nil, huma.Error500InternalServerError("missing identity")
+	}
+	pid, err := parseUUID(in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.svc.UpdateProject(ctx, id, pid, store.ProjectUpdate{
+		Name:        in.Body.Name,
+		Description: in.Body.Description,
+		Visibility:  in.Body.Visibility,
+	}); err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	pa, err := s.svc.GetProjectWithAccess(ctx, id, pid)
+	if err != nil {
+		return nil, huma.NewError(httpStatusForError(err), err.Error())
+	}
+	return &updateProjectOutput{Body: toProjectDTO(pa.Project, pa.Access.String(), pa.CanManage)}, nil
 }
 
 // --- list-documents ---
