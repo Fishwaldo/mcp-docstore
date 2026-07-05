@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import SharesPanel from "@/components/SharesPanel";
-import { listShares, removeShares } from "@/lib/api";
+import { listShares, removeShares, addShares } from "@/lib/api";
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -10,6 +10,7 @@ vi.mock("@/lib/api", async () => {
     ...actual,
     listShares: vi.fn(),
     removeShares: vi.fn(),
+    addShares: vi.fn(),
   };
 });
 
@@ -110,6 +111,57 @@ describe("SharesPanel", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/no shares yet/i)).toBeInTheDocument();
+    });
+  });
+
+  it("adding a share with write permission calls addShares", async () => {
+    vi.mocked(listShares).mockResolvedValue({ users: [], groups: [] });
+    vi.mocked(addShares).mockResolvedValue({
+      shares: { users: [{ email: "b@x.com", permission: "write" }], groups: [] },
+      unresolved: [],
+    });
+
+    render(<SharesPanel projectId="p1" />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText(/no shares yet/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/email or group name/i), {
+      target: { value: "b@x.com" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: /write/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => {
+      expect(addShares).toHaveBeenCalledWith("p1", {
+        kind: "user",
+        principals: ["b@x.com"],
+        permission: "write",
+      });
+    });
+  });
+
+  it("shows a warning naming unresolved principals after add", async () => {
+    vi.mocked(listShares).mockResolvedValue({ users: [], groups: [] });
+    vi.mocked(addShares).mockResolvedValue({
+      shares: { users: [], groups: [] },
+      unresolved: ["b@x.com"],
+    });
+
+    render(<SharesPanel projectId="p1" />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText(/no shares yet/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText(/email or group name/i), {
+      target: { value: "b@x.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn.t resolve.*b@x\.com/i)).toBeInTheDocument();
     });
   });
 });
