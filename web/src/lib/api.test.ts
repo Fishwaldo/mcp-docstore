@@ -22,6 +22,11 @@ import {
   deleteDocument,
   restoreSnapshot,
   listTags,
+  createProject,
+  updateProject,
+  archiveProject,
+  unarchiveProject,
+  deleteProject,
   ApiNoAccessError,
   ConflictError,
   NO_ACCESS_EVENT,
@@ -273,6 +278,76 @@ describe("listTags", () => {
   it("unwraps the tags array", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(200, { tags: ["alpha", "beta"] }));
     expect(await listTags()).toEqual(["alpha", "beta"]);
+  });
+});
+
+describe("createProject", () => {
+  it("POSTs and returns the project", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(201, {
+        id: "p1",
+        name: "New",
+        description: "",
+        visibility: "private",
+        archived: false,
+        access: "write",
+        can_manage: true,
+      })
+    );
+    const p = await createProject({ name: "New", visibility: "private" });
+    expect(p.id).toBe("p1");
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/projects");
+    expect((opts as RequestInit).method).toBe("POST");
+  });
+});
+
+describe("updateProject", () => {
+  it("PATCHes", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(200, {
+        id: "p1",
+        name: "Renamed",
+        description: "",
+        visibility: "org",
+        archived: false,
+        can_manage: true,
+      })
+    );
+    const p = await updateProject("p1", { name: "Renamed" });
+    expect(p.name).toBe("Renamed");
+    expect((mockFetch.mock.calls[0][1] as RequestInit).method).toBe("PATCH");
+  });
+});
+
+describe("archiveProject", () => {
+  it("POSTs to /archive", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(200, { id: "p1", name: "N", description: "", visibility: "org", archived: true, can_manage: true })
+    );
+    const p = await archiveProject("p1");
+    expect(p.archived).toBe(true);
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/projects/p1/archive");
+  });
+});
+
+describe("unarchiveProject", () => {
+  it("POSTs to /unarchive", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(200, { id: "p1", name: "N", description: "", visibility: "org", archived: false, can_manage: true })
+    );
+    const p = await unarchiveProject("p1");
+    expect(p.archived).toBe(false);
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/projects/p1/unarchive");
+    expect((mockFetch.mock.calls[0][1] as RequestInit).method).toBe("POST");
+  });
+});
+
+describe("deleteProject", () => {
+  it("DELETEs and resolves void", async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(204, null));
+    await expect(deleteProject("p1")).resolves.toBeUndefined();
+    expect((mockFetch.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
   });
 });
 

@@ -42,6 +42,7 @@ export interface ProjectDTO {
   visibility: string;
   archived: boolean;
   access?: string;
+  can_manage?: boolean;
 }
 
 export interface DocumentSummaryDTO {
@@ -246,4 +247,44 @@ export function restoreSnapshot(id: string, input: RestoreSnapshotInput): Promis
 export async function listTags(): Promise<string[]> {
   const out = await apiFetch<{ tags: string[] }>(`/tags`);
   return out.tags;
+}
+
+export interface CreateProjectInput {
+  name: string;
+  visibility: string;
+  description?: string;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  description?: string;
+  visibility?: string;
+}
+
+export function createProject(input: CreateProjectInput): Promise<ProjectDTO> {
+  return apiFetch<ProjectDTO>(`/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateProject(id: string, input: UpdateProjectInput): Promise<ProjectDTO> {
+  return apiFetch<ProjectDTO>(`/projects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function archiveProject(id: string): Promise<ProjectDTO> {
+  return apiFetch<ProjectDTO>(`/projects/${id}/archive`, { method: "POST" });
+}
+
+export function unarchiveProject(id: string): Promise<ProjectDTO> {
+  return apiFetch<ProjectDTO>(`/projects/${id}/unarchive`, { method: "POST" });
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await apiFetch<void>(`/projects/${id}`, { method: "DELETE" });
 }
